@@ -159,13 +159,13 @@ yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
 | Temiz açılış: `.env.example`→`.env`, `init_tables.py`, `uv run python run.py`, `npm run dev` | 26 tablo oluştu; `/health` `status=ok`, `db=ok`, `llm.api_key_configured=false`; arayüz 200 |
 | Sentetik uçtan uca API (2 hekim kaydı, hekimin oluşturduğu hasta, C2 ve C3) | **18/18**; verisiz DB'de analiz `status=unresolved` (ilaçlar bulunamadı), kayıtlı ilaç listesi değişmedi |
 | Arayüz: sentetik hekim girişi → /chat; Ayarlar → "Şifreyi değiştir" | "Şifre güncellendi"; eski parola 401, yeni 200 |
-| GitHub Actions | Bu PR ile çalışacak; sonucu PR'da görülmeli (yerelde çalıştırılamaz) |
+| GitHub Actions, run 45279282702 (PR #2, `c1989596…` birleşik ref `65c88244…`) | **Yeşil.** Backend: `uv lock --check` ✔, `uv sync --locked` (Py 3.12.12, 179 paket, 33 sn), gerçek paket importu ✔, `o200k_base` hazır, katı pytest **240 geçti** (8,8 sn), job 1 dk 22 sn. Frontend: 19 sn ✔. İlk push koşusu (`5c542da`) geçersiz workflow ifadesi (`runner` bağlamı job `env`'de) nedeniyle iş başlatamadı; `c198959` ile düzeltildi |
 | **Canlı LLM (Groq) doğrulaması** | **Eksik.** Mevcut yapılandırmayla küçük bir çağrı bu oturumun izin kuralı tarafından engellendi; anahtar istenmedi. `/health` LLM'in çalıştığını göstermez |
 | DrugBank verili gerçek DB | Yapılmadı (veri bu klonda yok; yeniden içe aktarma yapılmadı) |
 
 ### 6. Kalan engeller ve açık noktalar
 
-- CI'ın GitHub'da ilk yeşil koşusu (kilitli kurulum torch/CUDA tekerleklerini indirir; süre ilk koşuda belirlenecek, `timeout-minutes: 30`).
+- CI yeşil, ancak kilitli kurulum CUDA'lı torch (~3 GB) indiriyor; şimdilik 33 sn. GitHub, `actions/*@v4` ve `setup-uv@v6` için Node 20 kullanım dışı uyarısı veriyor (sürüm yükseltmesi ayrı, küçük iş).
 - Canlı Groq akışı ve gerçek DrugBank verisiyle uçtan uca kontrol: anahtar/veri sahibi ekip üyesinin kendi bilgisayarında ayrıca.
 - Halil: etkin `doctor/PatientDetail.jsx` `/api/session/query` yanıtında `response/content` bekliyor, backend `AgentResponse.messages` döndürüyor (R1-H1). C2 yanıt şekli değişmedi; gerçek birleşik kabul R1-O1 kabulünden sonra.
 - Kadir: C1 üretimi (R1-K1). `citations.py` yalnız atıf numarası ve atıfsız satır sayar; kaynakta olmayan iddiayı yakalamaz (denetim bulgusu).
