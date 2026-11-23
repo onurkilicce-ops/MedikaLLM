@@ -136,3 +136,113 @@ hash'ler `STAGE0.patch` içindedir.
 2. Form 3.5'teki adlı hekim/eczacı ile önceden kararlaştırılmış test setleri (M-01 %90, M-03 %90, M-05 50 uyarıda %85, M-06 10 sorunun 8'i) ve önem etiketleme yöntemi kararı.
 3. Doktor `analyze-patient` yetki sorgusu ve `change-password` hatası için ayrı, açık bir düzeltme.
 4. M-01 ayrı ekranına geçmeden önce gıda/hastalık–gıda kaynak verisi (TürKomp, kılavuzlar) ve kaynak/orijinal metin/birim saklama şeması.
+
+---
+
+## Aşama 0.1 — Groq ücretsiz katman sınırına uyum (2026-11-18 … 11-23)
+
+> Aşama 0 / 9. bölüm / 1. adım. Model (`openai/gpt-oss-20b`), sağlayıcı (Groq), anahtar ve
+> Groq planı **değişmedi**. Hiçbir MVP'nin (M-01…M-06) klinik kabulü bu aşamada da tamamlanmadı.
+
+### 1. Ne yapıldı; önceki ve yeni davranış
+
+| Durum | Önce | Şimdi |
+|---|---|---|
+| Her LLM çağrısının sabit yükü (Groq'un sayımı) | 6.200 token (yönerge ≈3.900 + 10 araç şeması) | **2.393** (hekim rolü, hasta yok: yönerge 1.328 + 9 araç şeması 1.483, tiktoken) |
+| Tek araçlı ilaç sorusu (dakika kotası doluyken değil) | 41–45 sn (2. çağrı dakika kotasında ~35 sn bekliyordu) | **1,2–3,8 sn** (canlı, 7 ilaç sorusu) |
+| Tek istek 8.000 token'ı aşınca | 413 (loglarda 8.186 / 8.804 / 9.260) | İstek bütçesi denetimi (tahmini 7.000): önce eski geçmiş atılır (model bilgilendirilir), sonra bu turun en büyük araç çıktısı işaretli kısaltılır; yine sığmazsa sağlayıcıya gönderilmeden `llm_request_too_large`. Canlıda 413 yok |
+| PubMed çıktısı (sahte makalelerle ölçüm) | 10 makale 6.468 token, açık erişimli tam metinle 35.688 → yanıt çağrısı hep 8.000'i aşıyordu (hesap) | 5 makale ≈1.800, 10 makale ≈2.600–2.800; tam metin, tam özet ve ayrıntılı ölçütler yalnız kaynak kartında (metin bunu söyler) |
+| PubMed özet kırpma | — | Bölüm duyarlı: SONUÇ, sonra BULGULAR korunur; işaret, gösterilmeyen bölümleri adlandırır ve "gösterilmeyen bulguyu söyleme" der |
+| Çoklu PubMed sorgusu | Yalnız güven puanına göre ilk N → zorunlu alt grup alt sorgusu düşebiliyordu | Alt sorgular sırayla harmanlanır; her makalede alt sorgu etiketi; sonuç vermeyen alt sorgu bildirilir |
+| Etkileşim kayıt listeleri | Sınırsız (10 ilaçta 45 kayıt ≈4K token) | İlk 15 kayıt DrugBank metniyle, sonrakiler ad + atıf numarasıyla (metinsiz); sorulan ilacın kayıtları önce; hepsi atıf yapılabilir, arayüzde atıf yapılan kart görünür |
+| Dakika kotası beklemesi | Sessiz bekleme | "Sağlayıcının dakikalık sınırı dolu; yanıt yaklaşık N sn içinde devam edecek" (yalnız istemci gerçekten bekleyecekse; canlıda art arda soruda 11 sn göründü) |
+| Günlük kota (TPD/RPD) | "rate limited, retry" + 2 boşuna yeniden deneme | `llm_daily_quota`: yeniden denemeden; kartta yaklaşık yenilenme süresi, "Yeniden dene" düğmesi yok |
+| Sohbet geçmişi | 20 tura kadar, boyut sınırsız | En yeni 1.000 token (güncel soru her zaman gider) |
+| Hasta aracı şeması | Her çağrıda | Yalnız hasta bağlamı varken |
+| Token kullanımı | Bilinmiyor | Her yanıtın sağlayıcı sayımı loglanır, `done.llm_usage` ve mesaj debug'ında |
+| `/health` | Son çağrı sonucu | + `llm.provider_limits` (son limit başlıkları, son 429) ve `llm.token_estimator` |
+| `get_drug_info` (`detail="high"`) — önceden var olan iki hata | İlişki koleksiyonlarına sınırlı alt küme atanıyordu → her okumada sınır ötesi satırlar için DELETE (oturum commit edilmediği için geri alınıyordu; salt okunur oturumda hata); altı koleksiyonun tek SELECT'te birleşmesi → bir sorgu ~160 sn | Okuma yolunda yazma yok; koleksiyonlar ayrı sorgularla → varfarin/parasetamol/ibuprofen 0,0–0,2 sn (salt okunur doğrulandı) |
+
+### 2. Dosyalar ve sürümler
+
+Başlangıç = Aşama 0 teslimi (2026-11-18 anlık görüntüsü, 188 dosyalık hash manifesti; `STATUS.md` 4e23d072…, `STAGE0.patch` 671d7601…).
+Değişiklik paketi: **`STAGE0_1.patch`** (Aşama 0 teslimine `git -c core.autocrlf=false apply -p1 STAGE0_1.patch` ile uygulanır; bayt düzeyinde doğrulandı). 21 değişen + 7 yeni dosya; `.env` değişmedi.
+
+| Dosya | Önce (16) | Sonra (16) | Neden |
+|---|---|---|---|
+| backend/src/agent/langchain_agent.py | bf4ee2dd803c7edb | 466d8450a44fa84e | Sıkıştırılmış yönerge; istemci kancası; bütçe ara katmanı |
+| backend/src/agent/tools.py | a885e77d549dc165 | 54f7d44a4d0d9b82 | Araç açıklamaları; PubMed ve kayıt listesi sınırları |
+| backend/src/drugs/service.py | 0a99aa37bf02b4cf | 1f7dd05f09d74211 | `get_drug(high)`: yazma yok, ayrı sorgular |
+| backend/src/pubmed/models.py, service.py | 4b779652… / 99411166… | 9ebdf6da… / c1a524b2… | Makaleye alt sorgu etiketi (`source_query`) |
+| backend/src/session/session.py, router.py | 5e78a2df… / 2b7e797c… | 8e4e6154… / fd7af2ef… | Geçmiş bütçesi, kullanım, `status` olayı |
+| backend/src/session/stream_errors.py | 9c1f9fb838b4bbf6 | 9b8972db479d42c8 | `llm_daily_quota`, `retry_after_seconds` |
+| backend/src/main.py, config.py | 5fea883a… / 56492b2a… | 2013d668… / cbc1ea2e… | `/health` ekleri; 2 ayar |
+| backend/scripts/check_live_stack.py | 726132e0a12d7f23 | fd6e10fc320d9cee | 9 soru, çağrı başına kullanım, bekleme bildirimleri |
+| frontend/src/api/chatStream.js, pages/Chat.jsx | 6e62c23a… / 7c83b833… | 86b9eb26… / 7d34d4f9… | `status` bildirimi, kaydırma |
+| frontend/src/components/FailedTurnCard.jsx, i18n/strings/chat.js, App.css | 297b5d3d… / cdc39c35… / 63bef57e… | a0cd5e51… / ea844e05… / 1fee6038… | Günlük kota, bekleme süresi, metinler (EN=TR) |
+| testler (değişen 5) | — | — | test_chat_stream_backend, test_stream_errors_and_citations (CI'da `openai` yoksa atlanır), test_tool_status_outputs, chatStream.test, FailedTurnCard.test |
+
+Yeni: `backend/src/agent/provider_limits.py` (c13d1b03…), `request_guard.py` (af0f0b2d…), `token_budget.py` (e5d6acee…); testler `test_provider_limits_and_budget.py`, `test_pubmed_output_budget.py`, `test_prompt_contract.py`, `test_review_followups.py`.
+
+### 3. Önemli kararlar ve gerekçeler
+- **Önce ölçüldü (2026-11-18, yeniden deneme kapalı sondalar):** Groq aynı ilk isteği 6.200 token saydı; dakika kotası 8.000'lik, sürekli dolan bir kova (≈133 token/sn); hemen tekrarlanan istek 429 "≈34 sn sonra" aldı. Belgelerdeki "önbellekteki token limite sayılmaz" bu hesapta görülmedi (`cached_tokens` yok, dakikalar sonra aynı istek de tam sayıldı) → önbelleğe güvenilmedi.
+- **Yönerge sıkıştırma:** üç bağımsız taslak (kuralları koruyan sade / araç merkezli / öncelik sıralı), üç yargıç (kapsam, davranış riski, bütçe), sentez. Kapsam yargıcının envanterindeki **168 kuralın her biri** yeni metinde bir yere yerleştirildi: genel ilkeler, STATUS, önem, alternatif, atıf, biçim → yönerge; "hangi araç ne zaman" kuralları → araç açıklamaları; PubMed sentez kuralları (alt tür/popülasyon ayrımı, düşük ilgi, çelişkili bulgu, yakın kopya, sınırlılıklar) → PubMed çıktısının başı ("HOW TO USE"). STATUS ve önem yönergeleri zaten araç çıktılarında. **Bilerek kaldırılan:** "the DrugBank record mentions monitoring INR" örneği (Aşama 0'daki desteklenmeyen INR önerisini tetiklemiş olabilir). **Eklenen:** ilaç adı verilmeden hasta analizi (`additional_drugs=[]`); "her [N], o iddiayı söyleyen kaynak olmalı" (eski PubMed altbilgisindeki kuralın geri kazanımı). Güvenlik kuralları testlerde tam cümle olarak sabit.
+- **Bütçe:** çağrı başına tahmini 7.000 (Groq tek istek sınırı 8.000; tiktoken tahmini Groq'tan biraz yüksek); geçmiş 1.000; 15 metinli kayıt; PubMed varsayılan 5, en fazla 10 (6–10 makalede özet 550 karakter).
+- **429:** OpenAI istemcisi `retry-after` ≤60 sn'yi zaten bekliyor; kanca yalnız istemcinin gerçekten bekleyeceği süreyi duyurur (son denemede duyurmaz; süre yalnız gövdede yazıyorsa başlığa taşır). Günlük kota için `x-should-retry: false`.
+- **Kullanım sayımı:** `stream_options.include_usage` istenince Groq kullanımı iki parçada gönderiyor, LangChain topluyordu (2.393 yerine 4.786) → istenmiyor; Groq son parçada zaten gönderiyor (ham akış ve limit başlıklarıyla doğrulandı).
+- **Tahmin yedeği:** tiktoken yüklenemezse 3,6 karakter/token ve 10 dk'da bir arka planda yeniden deneme.
+- **`get_drug` düzeltmesi kapsam içi:** yeni araç açıklaması yan etki/farmakokinetik için `detail="high"`i doğru biçimde gösteriyor; bu yol artık sık kullanılacak. Hatalar salt okunur canlı kontrolde ortaya çıktı.
+
+### 4. Veritabanı, bağımlılık, yapılandırma
+- Şema/migration yok. **Uygulama veritabanına yazma yok:** canlı kontroller ve doğrulamalar `default_transaction_read_only=on` ile; "kayıt yok" çifti (Amoxicillin + Loratadine) salt okunur sorguyla seçildi. Yazan testler ayrı `_synth` veritabanında.
+- Yeni ayarlar (varsayılanlı; `.env` değişmedi): `LLM_REQUEST_TOKEN_BUDGET=7000`, `CHAT_HISTORY_TOKEN_BUDGET=1000`.
+- Yeni bağımlılık yok (tiktoken langchain-openai ile zaten kurulu; ilk kullanımda kodlama dosyasını indirebilir, indiremezse yedek tahmin). `PubMedArticle`'a isteğe bağlı `source_query` alanı (varsayılan boş).
+- CI yapılandırmasına dokunulmadı (bkz. 8. bölüm).
+
+### 5. Plan hedefleri — durum ve kanıt
+| Hedef | Sonuç | Kanıt |
+|---|---|---|
+| Sabit yük ≤3.200 token | **2.393** (Groq) | Ham akış sondası ve ajan yolu, 2026-11-23 |
+| Tek araçlı ilaç sorusu ≤10 sn | **1,2–3,8 sn** | Canlı kontrol (2. tur, aşağıda) |
+| 413 yok | Canlıda yok; aşılma durumunda sağlayıcıya gönderilmeden açık hata | Bütçe denetleyicisi birim testleri; hasta bağlamlı PubMed turu yedek tahminde bile sığıyor |
+| Bekleme ekranda | Var | Birim + uç testleri; canlıda art arda soruda 11 sn bildirimi |
+| Günlük kapasite ≈25 soru | ≈30–38 tek araçlı soru (hesap: 200K TPD ÷ canlıda soru başına 5.200–6.600 token; önce ≈14) | Canlı kullanım değerleri |
+
+### 6. Çalıştırılan komutlar ve sonuçlar
+- Backend birim `pytest tests/unit` → **167 geçti**. Tüm paket, sentetik PG ile (`MEDICALLM_SYNTHETIC_PG_URL=…_synth`) → **193 geçti, 1 kaldı** (önceden var olan `change-password` import hatası). Ön yüz `npx vitest --run` → **53 geçti**; `vite build` başarılı.
+- Canlı kontrol (gerçek Groq + salt okunur yerel DB; `scripts/check_live_stack.py --pause 50`, 2026-11-23). Süre; çağrı başına giriş token'ı (Groq):
+
+  | Soru | Süre | Araç durumu | Çağrılar (giriş) |
+  |---|---|---|---|
+  | Selamlaşma | 0,8 sn | — | 2.393 |
+  | Varfarin nedir | 2,2 sn | FOUND | 2.392 + 3.897 |
+  | Varfarin + aspirin | 1,3 sn | FOUND | 2.392 + 2.625 |
+  | Aynı sohbette takip ("kaynak ve önem") | 1,2 sn | FOUND | 2.496 + 2.729 |
+  | "Xyzzyl" + varfarin | 2,9 sn | FOUND (yaklaşık eşleşme Levocetirizine; yanıt bunu söyleyip onay istedi) | 2.395 + 2.657 |
+  | Amoxicillin + Loratadine | 2,1 sn | NO_RECORD ("güvenli anlamına gelmez") | 2.394 + 2.579 |
+  | PubMed 3 makale | 11,4 sn | 3 makale | 2.401 + 3.680 |
+  | Parasetamol (art arda 1.) | 3,8 sn | FOUND | 2.387 + 3.718 |
+  | İbuprofen (art arda 2.) | 12,5 sn | FOUND; **11 sn bekleme bildirimi** | 2.387 + 3.781 |
+
+  Bilinmeyen kaynak numarası hiçbir yanıtta yok.
+- İlk canlı tur (aynı gün, düzeltmelerden önce) üç sorunu ortaya çıkardı: `get_drug(high)` hataları/yavaşlığı ve iki kat sayılan kullanım. Üçü de düzeltildi ve ikinci turda doğrulandı.
+- Bağımsız inceleme (4 boyut, iki mercekle doğrulama): 33 bulgu. Doğrulanan ya da elle teyit edilenler düzeltildi: kayıt sınırında gizlenen kayıtlar, PubMed özet kırpma, çoklu sorguda alt grup kaybı, hasta bağlamında 10 makalenin bütçeyi aşması, yedek tahminin fazla tutuculuğu, bildirimin görünür alana kaydırılmaması, gerçekleşmeyecek beklemenin duyurulması, süre biçimi, eksik testler. Doğrulayıcıların bir kısmı kota nedeniyle çalışamadı; o bulgular kod okunarak teyit edildi.
+
+### 7. Nasıl çalıştırılır ve kontrol edilir
+- Başlatma değişmedi. Bekleme bildirimi: iki ilaç sorusunu art arda sorun → ikincisinde "Sağlayıcının dakikalık sınırı dolu…" satırı.
+- `/health` → `llm.provider_limits` (`tokens_per_minute_remaining`, `requests_per_day_remaining`, son 429) ve `llm.token_estimator`.
+- Canlı kontrol (yazma yok, Groq kotası harcar, ≈50K token): `cd backend && uv run python scripts/check_live_stack.py --pause 50 --out live_check.json` (`--only` ile tek soru).
+
+### 8. Bilinen eksikler, riskler, geri alma
+- **Model hâlâ zaman zaman kayıtta olmayan bilgi ekliyor:** 9 canlı yanıttan birinde (parasetamol) "en fazla 4 g/24 saat" doz üst sınırı, DrugBank kaydında olmadığı halde yazıldı ve sona DrugBank atfı kondu (kayıt metinlerinde "4 g" yok; doz tablosu modele gönderilmiyor). Yönerge bunu açıkça yasaklıyor; arayüz "atıfsız 7 satır" uyarısı gösteriyor ama engellemiyor. Aşama 0'daki INR örneğiyle aynı sınıf; kalıcı çözüm yanıt sonrası doğrulayıcı veya yapılandırılmış özet (M-06).
+- **Ücretsiz katman tavanı sürüyor:** kuruluş genelinde dakikada ≈1–2 ilaç sorusu, günde ≈30–38. Form 3.5 test setleri (ör. M-05'in 50 uyarısı) birkaç güne yayılmalı ya da ücretli plan gerekir.
+- Kısalan yönerge 9 canlı soru ve sözleşme testleriyle kontrol edildi; geniş davranış değerlendirmesi (uzman setleri) yapılmadı. Terminoloji düzeltme kuralı model bilgisine dayanıyor (özgün yönergeden kalan gerilim).
+- PubMed yanıtları kırpılmış özetlere dayanır; tam metin yalnız kaynak kartında.
+- Başlık üretimi kendi LLM istemcisini kullanıyor (limit kaydı/bildirimi yok).
+- **CI:** `.github/workflows/ci.yml` `openai`/`langchain` kurmuyor; bu yüzden ajanla ilgili birim testleri CI'da çalışmaz (artık hata vermez, atlanır). Gerçek bağımlılıkların CI'a eklenmesi ayrı bir karar.
+- Geri alma: proje kökünde `git -c core.autocrlf=false apply -R -p1 STAGE0_1.patch` (Aşama 0'a döner). Veri/migration geri alması gerekmez.
+
+### 9. Sıradaki adım önerisi
+1. Ücretli plan kararı (sizin): önce Groq konsolunda Settings → Limits sayfasında `gpt-oss-20b` limitleri görülmeli. Fiyat: giriş $0,075/M, çıkış $0,30/M → soru başına ≈$0,0006.
+2. Yanıt sonrası doğrulayıcı (kayıtta olmayan doz/öneri cümlelerini işaretleme veya engelleme) — M-06 ile birlikte.
+3. Aşama 0'daki 2–4. adımlar geçerli (uzman test setleri, `analyze-patient` yetki ve `change-password` hataları, M-01 veri şeması).

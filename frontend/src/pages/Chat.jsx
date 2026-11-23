@@ -394,7 +394,9 @@ function Chat() {
     if (isNearBottom) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [currentChat?.messages, streamingContent]);
+    // The thinking line and the provider-wait notice are appended below the
+    // last message too; without them here they could stay below the fold.
+  }, [currentChat?.messages, streamingContent, thinkingStep, streamNotice]);
 
   const createNewChat = () => {
     // A "new chat" is purely a UI state — we do NOT call POST /conversations

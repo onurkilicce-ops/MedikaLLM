@@ -1,13 +1,13 @@
 # MedikaLLM — ekip deneme sürümü
 
-Bu dal, 22 Kasım 2026 tarihinde yerel MedicaLLM projesinden alınan bir geliştirme kopyasıdır. Tamamlanmış ürün veya klinik olarak doğrulanmış sürüm değildir. Amaç ekip arkadaşlarının kendi bilgisayarlarında kurulum ve temel işlevleri deneyebilmesidir.
+Bu dal, 23 Kasım 2026 tarihinde yerel MedicaLLM projesinden alınan güncel geliştirme kopyasıdır. Tamamlanmış ürün veya klinik olarak doğrulanmış sürüm değildir. Amaç ekip arkadaşlarının kendi bilgisayarlarında kurulum ve temel işlevleri deneyebilmesidir. **Şifre değiştirme akışında doğrulanmış bir hata vardır.** Güncel kontroller: [23 Kasım inceleme notu](REVIEW_2026-11-23.md).
 
-Dal: `team-test/2026-11-22-checkpoint`. `main` dalına yükleme veya bir sunucuya dağıtım yapılmaz. Claude'un yerel çalışma klasörü değiştirilmemiştir; bu kopyadan sonra yaptığı değişiklikler bu commit'e dahil değildir.
+Dal: `team-test/2026-11-23-stage-0-1`. `main` dalına yükleme veya bir sunucuya dağıtım yapılmaz. Claude'un yerel çalışma klasörü değiştirilmemiştir; bu kopyadan sonra yaptığı değişiklikler bu commit'e dahil değildir.
 
 ## Başlangıç
 
 ```powershell
-git clone --branch team-test/2026-11-22-checkpoint --single-branch https://github.com/onurkilicce-ops/MedikaLLM.git
+git clone --branch team-test/2026-11-23-stage-0-1 --single-branch https://github.com/onurkilicce-ops/MedikaLLM.git
 cd MedikaLLM
 Copy-Item .env.example .env
 ```
@@ -76,8 +76,8 @@ Bu depoda DrugBank XML/arşivi, veritabanı dökümü, gerçek kullanıcı/hasta
 
 - Sohbet hata kartları, yeniden deneme, veri bulunamadı/hata ayrımı ve kaynak bağlantıları mevcut.
 - Son çalışma: Groq istek boyutu kontrolü, bekleme/kota mesajları, sistem yönergelerinin ve araç açıklamalarının küçültülmesi.
-- `STATUS.md`, 18 Kasım tarihli önceki aşamanın raporudur; bu kopyanın bütün son değişikliklerini veya güncel test sonuçlarını temsil etmez.
-- Test sonuçları ve bu kopyanın sınırları: [TEAM_CHECKPOINT.md](TEAM_CHECKPOINT.md).
+- `STATUS.md`, uygulayıcının Aşama 0 ve 0.1 raporudur; raporlanan canlı sonuçlar bağımsız incelemede yeniden ölçülmedi.
+- Güncel bağımsız test sonuçları: [REVIEW_2026-11-23.md](REVIEW_2026-11-23.md). Önceki 22 Kasım kopyasının geçmiş kaydı: [TEAM_CHECKPOINT.md](TEAM_CHECKPOINT.md).
 - Eski otomatik sunucu dağıtımı ve sağlık izleme workflow'ları bu daldan çıkarıldı. CI dosyası tarihsel olarak korunmuştur; mevcut tetikleyicisi `main`/PR içindir, bu ilk test dalı push'u otomatik CI başarısı anlamına gelmez.
 
 Bir sorun bildirirken işletim sistemi, bu commit'in kimliği (`git rev-parse --short HEAD`), çalıştırdığınız adım, beklediğiniz sonuç ve kişisel bilgileri temizlenmiş hata metnini yazın.

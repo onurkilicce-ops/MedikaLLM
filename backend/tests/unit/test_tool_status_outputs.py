@@ -201,8 +201,10 @@ def test_patient_tool_without_patient_context_has_a_status(fake_search):
 
 
 def test_long_record_lists_are_capped_honestly(fake_search, monkeypatch):
-    """A 10-drug check can return dozens of records; the model sees at most
-    15 of them plus an explicit count, the user still gets every record."""
+    """A 10-drug check can return dozens of records. The model gets the
+    DrugBank text of the first 15; every further record is still listed by
+    name with its citation number, so it can be named and cited (the UI shows
+    cited sources) and nothing disappears from the answer."""
     records = [
         DrugInteractionDetail(
             drug1_id="DB00682", drug1_name="Warfarin", drug2_id=f"DB9{i:04d}", drug2_name=f"Drug{i}",
@@ -218,9 +220,28 @@ def test_long_record_lists_are_capped_honestly(fake_search, monkeypatch):
     out = _run(["Warfarin", "Aspirin"])
     assert out.startswith("STATUS: FOUND")
     assert "Record 14 text." in out and "Record 15 text." not in out
-    assert "5 more documented record(s) are not shown here" in out
+    assert "**Warfarin** + **Drug19**" in out and "(DrugBank text not shown)" in out
+    assert "Records 16-20 are listed without their DrugBank text" in out
+    assert "do not describe what they say" in out
     assert out.count("Severity: not rated") == 1
     sources = tools.peek_search_sources("req-tools")
     assert len([s for s in sources if s.get("tool") == "check_drug_interactions"]) >= 20
     footer = out.rsplit("[Sources:", 1)[1]
-    assert footer.count("[") == 15  # only refs the model was shown
+    assert footer.count("[") == 20  # every listed record is citable
+
+
+def test_records_for_the_drugs_just_asked_about_come_first():
+    def rec(a_id, a, b_id, b):
+        return DrugInteractionDetail(drug1_id=a_id, drug1_name=a, drug2_id=b_id, drug2_name=b,
+                                     description=f"{a}-{b}.", source_url="https://go.drugbank.com/drugs/x")
+    records = [rec(f"DB1{i:03d}", f"Old{i}", f"DB2{i:03d}", f"Old{i}b") for i in range(20)]
+    records.append(rec("DB1000", "Old0", "DB00945", "Aspirin"))
+    tools.set_request_id("req-prio")
+    lines, sources = tools._interaction_record_lines(
+        records, tool_name="analyze_patient_medications", metadata_for=lambda _it: {},
+        priority_ids=["DB00945"],
+    )
+    tools.get_last_search_sources(request_id="req-prio")
+    assert lines[2].startswith("1. **Old0** + **Aspirin**")
+    assert "Old0-Aspirin." in "\n".join(lines[:6])
+    assert len(sources) == 21

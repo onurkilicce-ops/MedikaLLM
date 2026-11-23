@@ -695,16 +695,19 @@ def search_pubmed_multi(
     with ThreadPoolExecutor(max_workers=len(sub_queries)) as executor:
         results = list(executor.map(_run_query, sub_queries))
     
-    for result in results:
+    for q, result in zip(sub_queries, results):
         if result is None:
             continue
         combined_total_found += result.total_found
         for article in result.articles:
+            # Tag a copy with its sub-query (cached results are shared objects)
+            # so the tool can keep every sub-query represented after capping.
+            tagged = article.model_copy(update={"source_query": q})
             if article.pmid and article.pmid not in seen_pmids:
                 seen_pmids.add(article.pmid)
-                all_articles.append(article)
+                all_articles.append(tagged)
             elif not article.pmid:
-                all_articles.append(article)
+                all_articles.append(tagged)
 
     # Sort merged pool by confidence
     all_articles.sort(key=lambda a: a.confidence_score, reverse=True)

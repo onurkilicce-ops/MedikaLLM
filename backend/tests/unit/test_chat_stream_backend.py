@@ -21,8 +21,10 @@ from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
-import openai
 import pytest
+
+# CI installs only the web-framework test dependencies; skip, don't error.
+openai = pytest.importorskip("openai", reason="exercises the real openai exception classes")
 
 pytest.importorskip("langchain", reason="session module imports the agent stack")
 

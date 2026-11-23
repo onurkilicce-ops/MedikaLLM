@@ -7,8 +7,10 @@ silently turning an auth failure into a generic error.
 import asyncio
 
 import httpx
-import openai
 import pytest
+
+# CI installs only the web-framework test dependencies; skip, don't error.
+openai = pytest.importorskip("openai", reason="exercises the real openai exception classes")
 from sqlalchemy.exc import OperationalError
 
 from src.agent.citations import check_citations, cited_numbers

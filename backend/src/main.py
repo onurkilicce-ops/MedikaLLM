@@ -315,7 +315,7 @@ async def endpoint_health():
     not prove the provider currently answers — see `verifies`.
     """
     from fastapi.responses import JSONResponse
-    from .agent import llm_status, provider_limits
+    from .agent import llm_status, provider_limits, token_budget
 
     checks: dict[str, str] = {}
     overall_ok = True
@@ -368,6 +368,7 @@ async def endpoint_health():
             "api_key_configured": bool(settings.llm_api_key),
             **llm_status.snapshot(),
             "provider_limits": provider_limits.snapshot() or "none_observed_since_start",
+            "token_estimator": token_budget.estimator_name(),
         },
         "verifies": {
             "agent": "agent object constructed at startup (no LLM call)",
