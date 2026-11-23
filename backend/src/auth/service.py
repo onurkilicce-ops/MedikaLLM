@@ -149,15 +149,29 @@ def verify_token(token: str) -> str:
     logger.debug(f"[AUTH] Verifying token")
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-        user_id = payload["userId"]
-        logger.debug(f"[AUTH] Token verified for user: {user_id}")
-        return user_id
     except jwt.ExpiredSignatureError:
         logger.warning(f"[AUTH] Token expired")
         raise ValueError("Token expired")
     except jwt.InvalidTokenError as e:
         logger.warning(f"[AUTH] Invalid token: {str(e)}")
         raise ValueError("Invalid token")
+    except OverflowError:
+        # PyJWT converts exp/nbf/iat to datetimes; a non-finite or huge
+        # numeric claim (e.g. exp=Infinity) overflows instead of raising an
+        # InvalidTokenError. That is malformed token content, not an
+        # application error.
+        logger.warning("[AUTH] Invalid token: out-of-range time claim")
+        raise ValueError("Invalid token")
+    # A correctly signed token whose identity claim is missing, null, empty
+    # or not a string carries no usable identity: same answer as any other
+    # invalid token (callers map ValueError to 401). The id format itself is
+    # not restricted — existing ids are opaque strings.
+    user_id = payload.get("userId") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id.strip():
+        logger.warning("[AUTH] Invalid token: missing or malformed userId claim")
+        raise ValueError("Invalid token")
+    logger.debug(f"[AUTH] Token verified for user: {user_id}")
+    return user_id
 
 
 def _create_token(user_id: str) -> str:

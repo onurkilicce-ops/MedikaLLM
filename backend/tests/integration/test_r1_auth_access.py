@@ -520,3 +520,358 @@ def test_reset_guard_refuses_a_database_with_non_synthetic_users(synthetic_pg):
         with synthetic_pg.begin() as conn:
             conn.execute(text("DELETE FROM users WHERE user_id = 'guard-probe'"))
     assert_safe_to_reset(SYNTHETIC_PG_URL)  # clean again
+
+
+# ============================================================================
+# R1-O1-D1 / D2 — new password over bcrypt's 72-byte limit -> 422, not 500
+# ============================================================================
+
+PW_ASCII_72 = "Aa1!" + "x" * 68
+PW_ASCII_73 = "Aa1!" + "x" * 69
+PW_UTF8_72 = "Aa1!" + "ü" * 34   # 38 chars, 72 bytes
+PW_UTF8_74 = "Aa1!" + "ü" * 35   # 39 chars, 74 bytes
+
+
+@pytest.mark.parametrize("new_password", [PW_ASCII_73, PW_UTF8_74], ids=["ascii-73B", "utf8-74B"])
+def test_d2_over_72_bytes_is_422_and_service_not_called(app_with_stubs, change_spy, new_password):
+    res = app_with_stubs.post(CHANGE, json=_body(new=new_password), headers=_bearer(_token("u1")))
+    assert res.status_code == 422
+    assert "72 bytes" in res.text
+    assert change_spy == []
+
+
+@requires_synthetic_pg
+@pytest.mark.parametrize("new_password", [PW_ASCII_73, PW_UTF8_74], ids=["ascii-73B", "utf8-74B"])
+def test_d2_over_72_bytes_changes_nothing(synthetic_app, synthetic_pg, new_password):
+    before = _hashes(synthetic_pg)
+    res = synthetic_app.post(CHANGE, json=_body(new=new_password), headers=_bearer(_token(ACCOUNTS["patient2"][0])))
+    assert res.status_code == 422
+    assert _hashes(synthetic_pg) == before
+    assert _login(synthetic_app, "patient2", SYNTH_PASSWORD).status_code == 200
+
+
+@requires_synthetic_pg
+@pytest.mark.parametrize("new_password", [PW_ASCII_72, PW_UTF8_72], ids=["ascii-72B", "utf8-72B"])
+def test_d2_exactly_72_bytes_works_end_to_end(synthetic_app, synthetic_pg, new_password):
+    before = _hashes(synthetic_pg)
+    res = synthetic_app.post(CHANGE, json=_body(new=new_password), headers=_bearer(_token(ACCOUNTS["patient2"][0])))
+    assert res.status_code == 200, res.text
+    me = ACCOUNTS["patient2"][0]
+    after = _hashes(synthetic_pg)
+    assert after[me] != before[me]
+    assert {k: v for k, v in after.items() if k != me} == {k: v for k, v in before.items() if k != me}
+    assert _login(synthetic_app, "patient2", SYNTH_PASSWORD).status_code == 401
+    assert _login(synthetic_app, "patient2", new_password).status_code == 200
+    # The full secret is used, not a prefix: dropping the last character fails.
+    assert _login(synthetic_app, "patient2", new_password[:-1]).status_code == 401
+
+
+# ============================================================================
+# R1-O1-D1 / D3 — signed token without a usable userId -> 401, not 500
+# ============================================================================
+
+def _claims_token(claims: dict) -> str:
+    from src.config import settings
+
+    body = {"exp": datetime.now(timezone.utc) + timedelta(hours=1), **claims}
+    return jwt.encode(body, settings.jwt_secret, algorithm="HS256")
+
+
+_BAD_ID_CLAIMS = [
+    ({}, "missing"),
+    ({"userId": None}, "null"),
+    ({"userId": ""}, "empty"),
+    ({"userId": "   "}, "blank"),
+    ({"userId": 123}, "int"),
+    ({"userId": ["synthetic-patient2-user"]}, "list"),
+    ({"userId": {"id": "synthetic-patient2-user"}}, "object"),
+    ({"user_id": "synthetic-patient2-user"}, "wrong-claim-name"),
+]
+_BAD_ID_PARAMS = dict(argvalues=[c for c, _ in _BAD_ID_CLAIMS], ids=[i for _, i in _BAD_ID_CLAIMS])
+
+
+@pytest.mark.parametrize("claims", **_BAD_ID_PARAMS)
+def test_d3_verify_token_rejects_unusable_user_id(claims):
+    from src.auth.service import verify_token
+
+    with pytest.raises(ValueError, match="Invalid token"):
+        verify_token(_claims_token(claims))
+
+
+def test_d3_verify_token_keeps_valid_expired_and_bad_signature_behaviour():
+    from src.auth.service import verify_token
+
+    assert verify_token(_token("user_0f3c")) == "user_0f3c"
+    assert verify_token(_token("legacy-id-123")) == "legacy-id-123"  # format not narrowed
+    with pytest.raises(ValueError, match="Token expired"):
+        verify_token(_token("user_0f3c", expired=True))
+    with pytest.raises(ValueError, match="Invalid token"):
+        verify_token(_token("user_0f3c", secret="another-secret-not-the-server-one"))
+
+
+@pytest.fixture
+def db_session_spy(monkeypatch):
+    """Records every attempt to open a DB session (none expected)."""
+    from src.db import sql_client
+
+    opened = []
+
+    def _factory():
+        opened.append(1)
+        raise AssertionError("no DB session expected for an unusable token")
+
+    monkeypatch.setattr(sql_client, "_SessionLocal", _factory)
+    return opened
+
+
+@pytest.mark.parametrize("claims", **_BAD_ID_PARAMS)
+def test_d3_change_password_unusable_user_id_is_401_no_service_no_db(
+    app_with_stubs, change_spy, db_session_spy, claims
+):
+    res = app_with_stubs.post(CHANGE, json=_body(), headers=_bearer(_claims_token(claims)))
+    assert res.status_code == 401
+    assert res.json()["detail"] == "Invalid token"
+    assert change_spy == []
+    assert db_session_spy == []
+
+
+@pytest.mark.parametrize("claims", **_BAD_ID_PARAMS)
+def test_d3_analyze_patient_unusable_user_id_is_401_no_service_no_db(
+    app_with_stubs, analyze_spy, db_session_spy, claims
+):
+    res = app_with_stubs.post(ANALYZE, json={"patient_id": PATIENT_ID}, headers=_bearer(_claims_token(claims)))
+    assert res.status_code == 401
+    assert analyze_spy == []
+    assert db_session_spy == []
+
+
+# ============================================================================
+# R1-O1-D1 / D1 — the reset guard checks the target the driver really uses
+# ============================================================================
+
+@pytest.fixture
+def no_db_effects(monkeypatch):
+    """Spy on every side effect reset_and_seed could have: engine creation
+    (=> connection) and metadata DROP/CREATE. A rejected URL must hit none."""
+    from src.db.sql_models import Base
+
+    from . import synthetic_data
+
+    calls = {"create_engine": [], "drop_all": [], "create_all": []}
+
+    def _engine(*a, **k):
+        calls["create_engine"].append(a)
+        raise AssertionError("create_engine must not be reached for a rejected URL")
+
+    monkeypatch.setattr(synthetic_data, "create_engine", _engine)
+    monkeypatch.setattr(Base.metadata, "drop_all", lambda *a, **k: calls["drop_all"].append(a))
+    monkeypatch.setattr(Base.metadata, "create_all", lambda *a, **k: calls["create_all"].append(a))
+    for name in ("PGHOSTADDR", "PGSERVICE"):
+        monkeypatch.delenv(name, raising=False)
+    return calls
+
+
+_D1_REJECTED = [
+    # (url, confirm, expected message fragment)
+    ("postgresql://audit@127.0.0.1:1/audit_synth?dbname=unapproved_app", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth?host=unapproved.example.invalid", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth?hostaddr=192.0.2.10", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth?service=unapproved", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth?options=-csearch_path%3Dother", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth?sslmode=disable", "audit_synth", "query string"),
+    ("postgresql://audit@127.0.0.1,unapproved.example.invalid:1/audit_synth", "audit_synth", "loopback"),
+    ("postgresql://audit@db.example.invalid:5432/audit_synth", "audit_synth", "loopback"),
+    ("postgresql:///audit_synth", "audit_synth", "loopback"),  # no host: libpq defaults/env decide
+    ("postgresql://audit@127.0.0.1:1/unapproved_app", "unapproved_app", "_synth"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth", "", "MEDICALLM_SYNTHETIC_PG_CONFIRM"),
+    ("postgresql://audit@127.0.0.1:1/audit_synth", "other_synth", "MEDICALLM_SYNTHETIC_PG_CONFIRM"),
+    ("postgresql+asyncpg://audit@127.0.0.1:1/audit_synth", "audit_synth", "driver"),
+    ("mysql://audit@127.0.0.1:1/audit_synth", "audit_synth", "driver"),
+]
+
+
+@pytest.mark.parametrize(
+    "url, confirm, message",
+    _D1_REJECTED,
+    ids=["q-dbname", "q-host", "q-hostaddr", "q-service", "q-options", "q-sslmode", "multi-host",
+         "remote-host", "no-host", "wrong-name", "no-confirm", "wrong-confirm", "asyncpg", "mysql"],
+)
+def test_d1_rejected_target_never_connects_drops_or_seeds(monkeypatch, no_db_effects, url, confirm, message):
+    from .synthetic_data import CONFIRM_ENV, reset_and_seed
+
+    monkeypatch.setenv(CONFIRM_ENV, confirm)
+    with pytest.raises(RuntimeError, match=message):
+        reset_and_seed(url)
+    assert no_db_effects == {"create_engine": [], "drop_all": [], "create_all": []}
+
+
+@pytest.mark.parametrize("env_name", ["PGHOSTADDR", "PGSERVICE"])
+def test_d1_redirecting_libpq_env_is_rejected(monkeypatch, no_db_effects, env_name):
+    from .synthetic_data import CONFIRM_ENV, reset_and_seed
+
+    monkeypatch.setenv(CONFIRM_ENV, "audit_synth")
+    monkeypatch.setenv(env_name, "192.0.2.10" if env_name == "PGHOSTADDR" else "unapproved")
+    with pytest.raises(RuntimeError, match=env_name):
+        reset_and_seed("postgresql://audit@127.0.0.1:1/audit_synth")
+    assert no_db_effects == {"create_engine": [], "drop_all": [], "create_all": []}
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://audit@127.0.0.1:1/audit_synth",
+        "postgresql+psycopg2://audit:pw@localhost:55433/audit_synth",
+        "postgresql://audit@[::1]:5432/audit_synth",
+    ],
+    ids=["ipv4", "localhost-psycopg2", "ipv6"],
+)
+def test_d1_checked_target_is_the_driver_target(monkeypatch, url):
+    """The accepted host/dbname are exactly what psycopg2 receives."""
+    from sqlalchemy import create_engine
+
+    from .synthetic_data import CONFIRM_ENV, resolve_reset_target
+
+    for name in ("PGHOSTADDR", "PGSERVICE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(CONFIRM_ENV, "audit_synth")
+    parsed, host, dbname = resolve_reset_target(url)
+    _, driver_params = create_engine(parsed).dialect.create_connect_args(parsed)  # no connection
+    assert (str(driver_params["host"]).lower(), driver_params["dbname"]) == (host, dbname)
+    assert dbname == "audit_synth"
+    assert not set(driver_params) & {"hostaddr", "service", "servicefile"}
+
+
+def test_d1_connected_database_must_be_the_confirmed_one():
+    from .synthetic_data import assert_connected_database
+
+    class _Result:
+        def __init__(self, value):
+            self.value = value
+
+        def scalar_one(self):
+            return self.value
+
+    class _Conn:
+        def __init__(self, name):
+            self.name = name
+
+        def execute(self, *_a, **_k):
+            return _Result(self.name)
+
+    assert_connected_database(_Conn("audit_synth"), "audit_synth")
+    with pytest.raises(RuntimeError, match="connected to database 'unapproved_app'"):
+        assert_connected_database(_Conn("unapproved_app"), "audit_synth")
+
+
+@requires_synthetic_pg
+def test_d1_allowed_synthetic_target_still_resets(synthetic_pg):
+    """The approved throw-away DB still passes the full guard (incl. the
+    post-connect current_database() check) and was seeded."""
+    from sqlalchemy import text
+
+    from .conftest import SYNTHETIC_PG_URL
+    from .synthetic_data import assert_safe_to_reset
+
+    assert_safe_to_reset(SYNTHETIC_PG_URL)
+    with synthetic_pg.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM patients")).scalar_one() == 2
+
+
+def test_d1_reset_stops_when_server_reports_another_database(monkeypatch):
+    """reset_and_seed itself runs the post-connect check: a connection that
+    lands in another database is refused before any DROP/CREATE."""
+    from contextlib import contextmanager
+
+    from src.db.sql_models import Base
+
+    from . import synthetic_data
+
+    effects = {"drop_all": [], "create_all": [], "statements": []}
+
+    class _Result:
+        def scalar_one(self):
+            return "unapproved_app"
+
+    class _Conn:
+        def execute(self, stmt, *_a, **_k):
+            effects["statements"].append(str(stmt))
+            return _Result()
+
+    class _Engine:
+        @contextmanager
+        def connect(self):
+            yield _Conn()
+
+        def dispose(self):
+            pass
+
+    monkeypatch.setattr(synthetic_data, "create_engine", lambda *_a, **_k: _Engine())
+    monkeypatch.setattr(Base.metadata, "drop_all", lambda *a, **k: effects["drop_all"].append(a))
+    monkeypatch.setattr(Base.metadata, "create_all", lambda *a, **k: effects["create_all"].append(a))
+    for name in ("PGHOSTADDR", "PGSERVICE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(synthetic_data.CONFIRM_ENV, "audit_synth")
+
+    with pytest.raises(RuntimeError, match="connected to database 'unapproved_app'"):
+        synthetic_data.reset_and_seed("postgresql://audit@127.0.0.1:1/audit_synth")
+    assert effects["statements"] == ["SELECT current_database()"]  # read-only probe only
+    assert effects["drop_all"] == [] and effects["create_all"] == []
+
+
+# ============================================================================
+# Review follow-ups: lone surrogate in a body field; out-of-range time claims
+# ============================================================================
+
+_SURROGATE_BODIES = [
+    b'{"current_password":"Old1!pass","new_password":"Aa1!xxxxx\\ud800"}',
+    b'{"current_password":"\\ud800","new_password":"Aa1!xxxxxx"}',
+]
+
+
+@pytest.mark.parametrize("raw", _SURROGATE_BODIES, ids=["new_password", "current_password"])
+def test_lone_surrogate_in_password_is_422_not_500(app_with_stubs, change_spy, raw):
+    res = app_with_stubs.post(
+        CHANGE,
+        content=raw,
+        headers={**_bearer(_token("u1")), "Content-Type": "application/json"},
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"][0]["type"] == "string_unicode"
+    assert change_spy == []
+
+
+def test_validation_422_body_shape_is_unchanged(app_with_stubs):
+    """Same JSON data as FastAPI's default handler (non-ASCII only escaped)."""
+    res = app_with_stubs.post(CHANGE, json=_body(new="güçsüz"), headers=_bearer(_token("u1")))
+    assert res.status_code == 422
+    detail = res.json()["detail"]
+    assert isinstance(detail, list) and {"type", "loc", "msg", "input"} <= set(detail[0])
+    assert detail[0]["loc"] == ["body", "new_password"]
+    assert detail[0]["input"] == "güçsüz"  # round-trips exactly
+    missing = app_with_stubs.post("/api/auth/login", json={})
+    assert missing.status_code == 422 and [e["loc"][-1] for e in missing.json()["detail"]] == ["email", "password"]
+
+
+_BAD_TIME_CLAIMS = [
+    ({"userId": "u1", "exp": float("inf")}, "exp-inf"),
+    ({"userId": "u1", "exp": 1e400}, "exp-1e400"),
+    ({"userId": "u1", "exp": 4102444800, "nbf": float("inf")}, "nbf-inf"),
+]
+
+
+def _raw_claims_token(claims: dict) -> str:
+    from src.config import settings
+
+    return jwt.encode(claims, settings.jwt_secret, algorithm="HS256")
+
+
+@pytest.mark.parametrize("claims", [c for c, _ in _BAD_TIME_CLAIMS], ids=[i for _, i in _BAD_TIME_CLAIMS])
+def test_out_of_range_time_claim_is_invalid_token(app_with_stubs, change_spy, analyze_spy, db_session_spy, claims):
+    from src.auth.service import verify_token
+
+    token = _raw_claims_token(claims)
+    with pytest.raises(ValueError, match="Invalid token"):
+        verify_token(token)
+    assert app_with_stubs.post(CHANGE, json=_body(), headers=_bearer(token)).status_code == 401
+    assert app_with_stubs.post(ANALYZE, json={"patient_id": PATIENT_ID}, headers=_bearer(token)).status_code == 401
+    assert change_spy == [] and analyze_spy == [] and db_session_spy == []

@@ -119,9 +119,10 @@ sayısal anahtarlarla karşılaştırılır.
 
 **C3 / Parola değiştirme (Onur) — R1-O1 PR'ında uygulandı, kabul bekliyor.**
 `POST /api/auth/change-password`, Bearer, `{current_password, new_password}`. Başarı
-`200 {success: true, message: string}`; token yok/bozuk/süresi geçmiş/Bearer değil veya
-kullanıcı kaydı yok → 401; yanlış mevcut parola (veya bcrypt olmayan kayıtlı değer)
-→ 400; kurallara uymayan yeni parola veya eksik alan → 422; DB/commit hatası → 500
+`200 {success: true, message: string}`; token yok/bozuk/süresi geçmiş/Bearer değil,
+imzası doğru ama `userId` iddiası eksik/null/boş/metin olmayan token veya kullanıcı kaydı
+yok → 401; yanlış mevcut parola (veya bcrypt olmayan kayıtlı değer) → 400; kurallara
+uymayan yeni parola (UTF-8'de 72 baytı aşan dahil), eksik alan → 422; DB/commit hatası → 500
 (`{"detail":"Password change failed"}`, başarı görünmez). Yalnız bu kullanıcının hash'i,
 tek işlemde, mevcut doğrulamadan sonra değişir; başarısız denemede kayıt değişmez.
 Not: gövde doğrulaması FastAPI'de yetki kontrolünden önce çalıştığı için **token'sız
@@ -131,7 +132,7 @@ ve aynı zamanda geçersiz gövdeli** istek 422 döner; token'sız geçerli göv
 
 | Görev | PR | Durum | Kabul edilen tam SHA | Entegrasyon merge SHA |
 |---|---|---|---|---|
-| R1-O1 | `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` (taslak) | İnceleme bekliyor | — | — |
+| R1-O1 | [#2](https://github.com/onurkilicce-ops/MedikaLLM/pull/2) `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` (taslak) | `6350d0d…` denetlendi → **düzeltme istendi** (D1–D3); düzeltmeler PR'a eklendi, **yeniden denetim bekliyor** (bkz. 7. bölüm) | — | — |
 | R1-K1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 | R1-H1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 
@@ -171,6 +172,46 @@ yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
 - Kadir: C1 üretimi (R1-K1). `citations.py` yalnız atıf numarası ve atıfsız satır sayar; kaynakta olmayan iddiayı yakalamaz (denetim bulgusu).
 - Form A'nın imzalı sürümü ve güncel kapsam eki yok.
 - Kapsam dışı kalanlar: lisans aktarımı, uzman değerlendirmesi, M-01–M-06 tam özellikleri, ücretli plan, dağıtım, hasta portalı.
+
+### 7. Denetim R1-O1-D1 (PR #2, denetlenen `6350d0de6dd90f2cef4f999b925399e173bce4d6`)
+
+Denetçi kararı: **düzeltme istendi**. Korunan kazanımlar (denetçi doğruladı): parola
+değiştirme import hatası giderildi; hasta analizindeki iç/dış kimlik karışıklığı düzeltildi;
+`resolve_patient_access` ortak politika; CI run 45280426778'de backend 240, frontend 53
+test + derleme başarılı. Denetçi temiz kurulumu ve 18 API kontrolünü yeniden çalıştırmadı;
+canlı Groq ve gerçek DrugBank doğrulaması eksik.
+
+| Bulgu | Sorun (6350d0d) | Düzeltme | Kanıt |
+|---|---|---|---|
+| D1 Test DB hedefi | Koruma URL'yi `urlparse` ile okuyordu; `…/audit_synth?dbname=unapproved_app` ve `…?host=unapproved.example.invalid` kabul ediliyordu, sürücü ise başka DB/host kullanıyordu (yeniden üretildi) | `synthetic_data.resolve_reset_target`: denetim psycopg2 lehçesinin `create_connect_args` çıktısı üzerinde; URL sorgu seçenekleri tamamen reddedilir; `PGHOSTADDR`/`PGSERVICE` tanımlıysa ret; yalnız `postgresql`/`postgresql+psycopg2`; doğrulanan URL nesnesiyle bağlanılır; bağlantıdan sonra `current_database()` onaylanan adla aynı olmalı. Önceki ad/loopback/onay/envanter korumaları aynen | 14 reddedilen URL + 2 ortam değişkeni testinde `create_engine`/`drop_all`/`create_all` hiç çağrılmıyor; sürücü hedefi = denetlenen hedef (3 URL); izinli sentetik DB sıfırlanmaya devam ediyor |
+| D2 72 bayt | `ChangePasswordRequest` 73+ baytlık parolayı kabul ediyor, bcrypt 5 hash'te hata → 500 | `auth/models.py`: yeni parola UTF-8'de 72 baytı aşarsa doğrulama hatası (422, mesajda "72 bytes"); kesme yok, algoritma/migration yok | ASCII 72 bayt ve 38 karakter/72 bayt (`ü`) uçtan uca 200, eski parola 401, yeni 200, son karakter eksikken 401; 73/74 bayt 422, kayıt değişmiyor; birim: 3 kabul, 3 ret (2 ve 3 baytlık karakterler) |
+| D3 `userId`siz token | `verify_token` `payload["userId"]` → `KeyError` → change-password 500 (hız sınırlayıcının anahtar fonksiyonunda da aynı yol) | `verify_token`: yalnız JWT hataları ve eksik/null/boş/boşluk/metin olmayan `userId` → `ValueError("Invalid token")` → 401. Kimlik biçimi daraltılmadı; diğer istisnalar gizlenmiyor | 8 bozuk iddia biçimi × (verify_token, change-password, analyze-patient): 401, parola/analiz servisi ve DB oturumu çağrılmıyor; geçerli/süresi geçmiş/yanlış imzalı token davranışı aynı |
+
+Ek (uygulayıcının kendi bağımsız 3 ajanlı adversarial incelemesi, salt okunur):
+- D1 için `reset_and_seed`'in bağlantı sonrası `current_database()` denetimini gerçekten
+  çalıştırdığını gösteren test eksikti → eklendi (sahte bağlantı başka DB bildirince
+  DROP/CREATE yok, yalnız okuma sorgusu).
+- JSON'da eşsiz UTF-16 vekil karakter (`"\ud800"`) içeren parola alanı, FastAPI'nin
+  varsayılan 422 işleyicisi girdiyi geri yansıtırken UTF-8 kodlayamadığı için **500**
+  veriyordu (yeniden üretildi; uygulama genelinde, doğrulama hatası olan her alan için).
+  `src/main.py`: aynı durum kodu ve gövdeyle (`{"detail": jsonable_encoder(exc.errors())}`)
+  ama ASCII-kaçışlı JSON üreten `RequestValidationError` işleyicisi → 422. Ayrıştırılan veri
+  varsayılanla aynı; diğer 422 testleri değişmeden geçiyor.
+- Anahtarla imzalanmış `exp`/`nbf` = sonsuz token PyJWT'de `OverflowError` → 500 (önceden
+  vardı, yalnız imza anahtarına sahip biri üretebilir) → `verify_token` bunu "Invalid token"
+  sayar → 401. Diğer istisnalar 401'e çevrilmedi.
+- İnceleyicinin denediği ve **sorun bulmadığı** yollar: yüzde kodlama, userinfo hileleri,
+  IPv6/`0.0.0.0`/`localhost.`, unix soketi, çoklu host, `PGHOST`/`PGDATABASE`
+  (açık değerler önceliklidir), boş `PGSERVICE`; 4 baytlık emoji ve birleşik karakterlerle
+  72 bayt sınırı; NUL içeren parola (bcrypt 5 kesmiyor); 100 baytlık mevcut parola → 400.
+
+Regresyon kanıtı: yeni testler `git archive 6350d0d` ile ayrı geçici kopyaya alınıp
+çalıştırıldı → **49 başarısız** (D1 15, D2 7, D3 22, inceleme ekleri 5; 74 geçti —
+eski sürümün zaten doğru olduğu sınır durumları). Düzeltilmiş ağaçta katı mod
+(`MEDICALLM_STRICT_TESTS=1`, sentetik PG): **305 geçti, 0 atlandı** (240 + 65 yeni).
+`uv lock --check` ✔; frontend `npm ci`, 53 test, derleme ✔. Kilit/bağımlılık/CI değişmedi.
+Not: kayıt (`/verification-code`) ve parola sıfırlama akışları 72 baytı aşan parolada
+500 değil 400 döner (hata kod adımında yakalanıyor); bu turda değiştirilmedi.
 
 ---
 

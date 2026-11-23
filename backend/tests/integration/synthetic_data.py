@@ -4,6 +4,10 @@ Safety: ``reset_and_seed`` drops and recreates every table. A ``_synth`` name
 suffix alone is NOT permission to do that. ``assert_safe_to_reset`` requires
 all of:
 
+  0. the host and database checked below are the ones the psycopg2 driver
+     will really use: URL query options and redirecting libpq environment
+     variables are refused, and after connecting the server must report the
+     confirmed database (see ``resolve_reset_target``);
   1. the database name ends in ``_synth``;
   2. the host is a loopback address (a local server or a CI service
      container), never a remote/managed database;
@@ -36,6 +40,12 @@ TAG = "[SYNTHETIC TEST RECORD]"
 SYNTH_EMAIL_DOMAIN = "synthetic-medicallm.org"
 CONFIRM_ENV = "MEDICALLM_SYNTHETIC_PG_CONFIRM"
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+_ALLOWED_DRIVERS = {"postgresql", "postgresql+psycopg2"}
+# libpq environment variables that redirect a connection even when the URL
+# names host and database explicitly (hostaddr wins over host; a service
+# entry can supply hostaddr).
+_REDIRECTING_PG_ENV = ("PGHOSTADDR", "PGSERVICE")
+_REDIRECTING_PARAMS = {"hostaddr", "service", "servicefile"}
 
 DRUGS = {
     # drug_id: (name, synonyms, brands, categories, food interactions)
@@ -101,12 +111,59 @@ def assert_synthetic(url: str) -> None:
         raise RuntimeError(f"Refusing to modify database '{dbname}': name must end with '_synth'.")
 
 
-def assert_safe_to_reset(url: str) -> None:
-    """All four conditions from the module docstring, before any DROP."""
-    assert_synthetic(url)
-    parsed = urlparse(url)
-    dbname = _dbname(url)
-    host = (parsed.hostname or "").lower()
+def resolve_reset_target(url: str):
+    """Validate the target the DRIVER will actually use, without connecting.
+
+    The checks run on the connection parameters SQLAlchemy's psycopg2 dialect
+    builds from the URL (``create_connect_args``), not on a separate parse of
+    the URL text, so what is checked is what libpq receives. To keep that
+    mapping unambiguous:
+
+      * only ``postgresql`` / ``postgresql+psycopg2`` URLs are accepted;
+      * ANY query-string option is refused — ``?host=``, ``?dbname=``,
+        ``?hostaddr=``, ``?service=`` and friends can silently replace the
+        host/database shown in the URL body;
+      * libpq environment variables that redirect a connection even when host
+        and database are explicit (``PGHOSTADDR``, ``PGSERVICE``) must be
+        unset;
+      * the resulting ``host`` must be a single loopback name/address and the
+        resulting ``dbname`` must end in ``_synth`` and equal
+        ``MEDICALLM_SYNTHETIC_PG_CONFIRM``.
+
+    Returns ``(sqlalchemy_url, host, dbname)``; callers must connect with that
+    exact URL object. Raises RuntimeError before any connection otherwise.
+    """
+    from sqlalchemy.dialects.postgresql.psycopg2 import PGDialect_psycopg2
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+
+    try:
+        parsed = make_url(url)
+    except ArgumentError as exc:
+        raise RuntimeError(f"Refusing to reset: unparseable database URL ({exc}).") from exc
+    if parsed.drivername not in _ALLOWED_DRIVERS:
+        raise RuntimeError(
+            f"Refusing to reset: driver '{parsed.drivername}' is not one of {sorted(_ALLOWED_DRIVERS)}."
+        )
+    if parsed.query:
+        raise RuntimeError(
+            "Refusing to reset: connection options in the URL query string are not allowed "
+            f"(found {sorted(parsed.query)}); they can change the real host/database."
+        )
+    redirecting_env = [name for name in _REDIRECTING_PG_ENV if os.environ.get(name)]
+    if redirecting_env:
+        raise RuntimeError(
+            f"Refusing to reset: unset {', '.join(redirecting_env)}; libpq would use it to "
+            "redirect the connection away from the host in the URL."
+        )
+    _, params = PGDialect_psycopg2().create_connect_args(parsed)
+    redirecting_params = sorted(set(params) & _REDIRECTING_PARAMS)
+    if redirecting_params:  # defensive: unreachable without a query string
+        raise RuntimeError(f"Refusing to reset: driver options {redirecting_params} are not allowed.")
+    host = str(params.get("host") or "").lower()
+    dbname = str(params.get("dbname") or "")
+    if not dbname.endswith("_synth"):
+        raise RuntimeError(f"Refusing to modify database '{dbname}': name must end with '_synth'.")
     if host not in _LOOPBACK_HOSTS:
         raise RuntimeError(
             f"Refusing to reset '{dbname}' on host '{host or '?'}': only a loopback "
@@ -117,9 +174,30 @@ def assert_safe_to_reset(url: str) -> None:
             f"Refusing to reset '{dbname}': set {CONFIRM_ENV}={dbname} to confirm this "
             "is the throw-away database created for this run."
         )
-    engine = create_engine(url)
+    return parsed, host, dbname
+
+
+def assert_connected_database(conn, expected_dbname: str) -> None:
+    """Second line of defence after connecting: the server must report the
+    confirmed database as the current one (catches anything that still
+    redirected the session, e.g. a server-side or pooler mapping)."""
+    current = conn.execute(text("SELECT current_database()")).scalar_one()
+    if current != expected_dbname:
+        raise RuntimeError(
+            f"Refusing to reset: connected to database '{current}', expected '{expected_dbname}'."
+        )
+
+
+def assert_safe_to_reset(url: str):
+    """All conditions from the module docstring, before any DROP.
+
+    Returns the validated SQLAlchemy URL that the reset must use.
+    """
+    parsed, _host, dbname = resolve_reset_target(url)
+    engine = create_engine(parsed)
     try:
         with engine.connect() as conn:
+            assert_connected_database(conn, dbname)
             tables = set(inspect(conn).get_table_names())
             if "users" in tables:
                 foreign_users = conn.execute(
@@ -141,6 +219,7 @@ def assert_safe_to_reset(url: str) -> None:
                     )
     finally:
         engine.dispose()
+    return parsed
 
 
 def _hash(password: str) -> str:
@@ -151,7 +230,8 @@ def _hash(password: str) -> str:
 
 
 def reset_and_seed(url: str) -> None:
-    assert_safe_to_reset(url)
+    # Connect with the exact URL object that was validated.
+    url = assert_safe_to_reset(url)
     import json
 
     from src.db.sql_models import (

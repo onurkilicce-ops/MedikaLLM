@@ -81,8 +81,9 @@ npm 11 `allow-scripts` uyarısı (esbuild postinstall) gösterebilir; test ve de
 
 1. http://localhost:3000/register üzerinden "Sağlık profesyoneli" hesabı açın. E-posta hizmeti yapılandırılmadığından doğrulama kodu backend terminalinde `[AUTH] No email backend configured` satırında görünür. Kodu/logu paylaşmayın.
 2. Giriş yapın; Hastalar ekranından uydurma bir hasta ve ilaç adları ekleyin.
-3. Hasta analizinde verisiz kurulumda ilaçlar `unresolved` (veritabanında bulunamadı) görünür. Bu beklenen sonuçtur ve "etkileşim yok/güvenli" anlamına gelmez.
-4. Ayarlar/profilden parola değiştirin; eski parolayla giriş reddedilmeli, yenisiyle kabul edilmelidir.
+3. **Backend API kontrolü (hasta analizi):** http://localhost:8000/docs → `POST /api/auth/login` ile token alın, "Authorize" ile ekleyin, `POST /api/drugs/analyze-patient` gövdesi `{"patient_id": "<hastanın patient_id'si>"}`. Atanmış hekim 200 alır; verisiz kurulumda `status` `unresolved` olur (ilaçlar veritabanında bulunamadı). Bu beklenen sonuçtur ve "etkileşim yok/güvenli" anlamına gelmez. Başka bir hekim hesabıyla 403, olmayan `patient_id` ile 404 beklenir.
+   - Bu adım yalnız **backend sözleşmesini (C2)** doğrular. Arayüzdeki hekim hasta analizi ekranının (`doctor/PatientDetail.jsx`) yanıtı doğru göstermesi Halil'in R1-H1 görevidir ve henüz kabul edilmedi; arayüzde görünen sonuç bu kontrolün kanıtı sayılmaz.
+4. Ayarlar → "Şifreyi değiştir": eski parolayla giriş reddedilmeli, yenisiyle kabul edilmelidir. Yeni parola en fazla 72 **bayt** olabilir (UTF-8; Türkçe karakterler 2 bayt sayılır); daha uzun parola 422 ile reddedilir, kesilmez.
 5. `/health` içindeki `llm.api_key_configured` yalnız anahtarın tanımlı olduğunu gösterir; **LLM'in gerçekten yanıt verdiğini doğrulamaz**. Bunun için sohbette basit bir soru sorun.
 
 ## Verisiz kurulum ile DrugBank içeren kurulumun farkı
@@ -119,7 +120,7 @@ $env:MEDICALLM_STRICT_TESTS = "1"
 uv run pytest tests -p no:cacheprovider -q -ra
 ```
 
-Sentetik testler bu veritabanındaki tabloları siler ve yeniden kurar. Koruma: ad `_synth` ile bitmeli, sunucu yerel olmalı, `MEDICALLM_SYNTHETIC_PG_CONFIRM` aynı adı içermeli ve veritabanında sentetik olmayan kullanıcı/ilaç bulunmamalı; aksi halde hiçbir şey silinmeden durur. Katı modda eksik paket, eksik veritabanı adresi, eksik tokenizer verisi (`tiktoken` `o200k_base`, ilk kullanımda indirilir) veya hiç test toplamayan test modülü hata verir.
+Sentetik testler bu veritabanındaki tabloları siler ve yeniden kurar. Koruma, sürücünün (psycopg2) gerçekten kullanacağı hedefi denetler: ad `_synth` ile bitmeli, sunucu yerel (`127.0.0.1`/`localhost`/`::1`) olmalı, `MEDICALLM_SYNTHETIC_PG_CONFIRM` aynı adı içermeli, URL'de `?` ile başlayan hiçbir bağlantı seçeneği bulunmamalı (`?host=`, `?dbname=` vb. hedefi değiştirebilir), `PGHOSTADDR`/`PGSERVICE` ortam değişkenleri tanımlı olmamalı, bağlandıktan sonra sunucunun bildirdiği `current_database()` onaylanan ad olmalı ve veritabanında sentetik olmayan kullanıcı/ilaç bulunmamalı. Aksi halde bağlanmadan (ya da yalnız okuyup) hiçbir şey silinmeden durur. Katı modda eksik paket, eksik veritabanı adresi, eksik tokenizer verisi (`tiktoken` `o200k_base`, ilk kullanımda indirilir) veya hiç test toplamayan test modülü hata verir.
 
 Frontend (`frontend/` içinde): `npm test` ve `npm run build`.
 

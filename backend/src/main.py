@@ -1,9 +1,12 @@
 from __future__ import annotations
 import asyncio
 from typing import List
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+import json
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -212,6 +215,26 @@ from .middleware.rate_limiter import limiter  # noqa: E402
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
+
+
+class _AsciiJSONResponse(JSONResponse):
+    """JSON with non-ASCII escaped (``\\uXXXX``). Parses to the same data as
+    the default response, but can also carry a lone UTF-16 surrogate that a
+    client sent as a JSON escape (e.g. ``"\\ud800"``), which plain UTF-8
+    encoding cannot represent."""
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+        ).encode("utf-8")
+
+
+@app.exception_handler(RequestValidationError)
+async def _request_validation_handler(request: Request, exc: RequestValidationError):
+    """Same status and body as FastAPI's default 422 handler. The default one
+    echoes the rejected input and crashed with a 500 (UnicodeEncodeError) when
+    that input contained a lone surrogate, e.g. in a password field."""
+    return _AsciiJSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
 
 
 app.add_middleware(SlowAPIMiddleware)
