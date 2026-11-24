@@ -25,8 +25,9 @@ bağımsız olarak yeniden doğrulanmadı.
 | Ekip deposu | `onurkilicce-ops/MedikaLLM` (kaynak proje: `IsmailEsadKilic/MedicaLLM`) |
 | Entegrasyon dalı | `team-test/2026-11-23-stage-0-1` |
 | Ortak başlangıç SHA | `f549e597e41539704e9b39a5ff0e30e6af7c8cd8` |
+| **Güncel kabul edilmiş entegrasyon SHA** (2026-11-24) | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` — PR #2 (R1-O1) merge commit'i; ekip bu tam SHA'yı `git merge --no-ff` ile alır |
 | Önceki checkpoint | `team-test/2026-11-22-checkpoint` @ `f0a36e8ebf3441348170faa702d6bed9388cf4ae` |
-| Açık PR #1 | Yeni dalı eski checkpoint'e birleştirmeyi öneriyor; **Tur 1 görev PR'ı değildir**, merge/hedef değişikliği yapılmaz |
+| Açık PR #1 | Yeni dalı eski checkpoint'e birleştirmeyi öneriyor; **Tur 1 görev PR'ı değildir**, merge/hedef değişikliği yapılmaz. Head'i bu entegrasyon dalının kendisi olduğu için PR #2 merge'üyle head ref'i otomatik olarak `f4ab516…`'ya ilerledi; PR #1'e dokunulmadı, tabanı (`f0a36e8…`) aynı |
 | Görev PR hedefi | Her görev PR'ı: base = `team-test/2026-11-23-stage-0-1` |
 | Güncelleme yöntemi | `git merge --no-ff <KABUL_EDİLMİŞ_TAM_SHA>`; force push / rebase / reset --hard yok |
 
@@ -101,7 +102,7 @@ C1 durum örnekleri (her biri Kadir'in ayrı sentetik testi olacak):
 | araç hatası | `checks[].status=error`, sonuç bilinmiyor |
 | sağlayıcı/ulaşım hatası | mevcut terminal `error` olayı (answer_evidence ile başarı gibi sunulmaz) |
 
-**C2 / Mevcut hasta kontrolü (onarım Onur, tüketim Halil) — R1-O1 PR'ında uygulandı, kabul bekliyor.**
+**C2 / Mevcut hasta kontrolü (onarım Onur, tüketim Halil) — R1-O1'de uygulandı; kabul edildi ve entegrasyon dalında (`f4ab516…`).**
 `POST /api/drugs/analyze-patient`, Bearer, gövde `{patient_id: string, additional_drug_ids: string[] = []}`
 (serbest `chronic_conditions/allergies/current_medications` gövdesi sözleşme değildir).
 Yanıt mevcut `AnalyzePatientResponse` (değişmedi): `patient_id, status, current_drugs,
@@ -117,7 +118,7 @@ kendisine atanmış hastayı; değilse hasta profili olan kullanıcı yalnız ke
 Dış kimlikler (`user_id`, `patient_id`) yalnız kendi sütunlarıyla, sahiplik/atama iç
 sayısal anahtarlarla karşılaştırılır.
 
-**C3 / Parola değiştirme (Onur) — R1-O1 PR'ında uygulandı, kabul bekliyor.**
+**C3 / Parola değiştirme (Onur) — R1-O1'de uygulandı; kabul edildi ve entegrasyon dalında (`f4ab516…`).**
 `POST /api/auth/change-password`, Bearer, `{current_password, new_password}`. Başarı
 `200 {success: true, message: string}`; token yok/bozuk/süresi geçmiş/Bearer değil,
 imzası doğru ama `userId` iddiası eksik/null/boş/metin olmayan token veya kullanıcı kaydı
@@ -130,9 +131,9 @@ ve aynı zamanda geçersiz gövdeli** istek 422 döner; token'sız geçerli göv
 
 ### 4. Kabul edilen PR / SHA kaydı
 
-| Görev | PR | Durum | Kabul edilen tam SHA | Entegrasyon merge SHA |
+| Görev | PR | Durum | Kabul edilen tam kod SHA | Entegrasyon merge SHA |
 |---|---|---|---|---|
-| R1-O1 | [#2](https://github.com/onurkilicce-ops/MedikaLLM/pull/2) `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` (taslak) | `6350d0d…` denetlendi → **düzeltme istendi** (D1–D3); düzeltmeler PR'a eklendi, **yeniden denetim bekliyor** (bkz. 7. bölüm) | — | — |
+| R1-O1 | [#2](https://github.com/onurkilicce-ops/MedikaLLM/pull/2) `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` | **Teknik teslim kabul edildi; merge edildi** (2026-11-24, merge commit yöntemi). D1–D3 kapandı (bkz. 7–8. bölüm) | `3ddbed1f280f65cfaf60e4ce56046eb873ffd17d` | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` |
 | R1-K1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 | R1-H1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 
@@ -168,7 +169,7 @@ yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
 
 - CI yeşil, ancak kilitli kurulum CUDA'lı torch (~3 GB) indiriyor; şimdilik 33 sn. GitHub, `actions/*@v4` ve `setup-uv@v6` için Node 20 kullanım dışı uyarısı veriyor (sürüm yükseltmesi ayrı, küçük iş).
 - Canlı Groq akışı ve gerçek DrugBank verisiyle uçtan uca kontrol: anahtar/veri sahibi ekip üyesinin kendi bilgisayarında ayrıca.
-- Halil: etkin `doctor/PatientDetail.jsx` `/api/session/query` yanıtında `response/content` bekliyor, backend `AgentResponse.messages` döndürüyor (R1-H1). C2 yanıt şekli değişmedi; gerçek birleşik kabul R1-O1 kabulünden sonra.
+- Halil: etkin `doctor/PatientDetail.jsx` `/api/session/query` yanıtında `response/content` bekliyor, backend `AgentResponse.messages` döndürüyor (R1-H1). C2 yanıt şekli değişmedi; R1-O1 artık entegrasyon dalında (`f4ab516…`), gerçek birleşik kabul R1-H1 denetiminde.
 - Kadir: C1 üretimi (R1-K1). `citations.py` yalnız atıf numarası ve atıfsız satır sayar; kaynakta olmayan iddiayı yakalamaz (denetim bulgusu).
 - Form A'nın imzalı sürümü ve güncel kapsam eki yok.
 - Kapsam dışı kalanlar: lisans aktarımı, uzman değerlendirmesi, M-01–M-06 tam özellikleri, ücretli plan, dağıtım, hasta portalı.
@@ -212,6 +213,34 @@ eski sürümün zaten doğru olduğu sınır durumları). Düzeltilmiş ağaçta
 `uv lock --check` ✔; frontend `npm ci`, 53 test, derleme ✔. Kilit/bağımlılık/CI değişmedi.
 Not: kayıt (`/verification-code`) ve parola sıfırlama akışları 72 baytı aşan parolada
 500 değil 400 döner (hata kod adımında yakalanıyor); bu turda değiştirilmedi.
+
+Bu bölümdeki "düzeltme istendi" kararı `6350d0d…` için **tarihseldir**; güncel karar 8. bölümdedir.
+
+### 8. R1-O1 kabulü ve ilk entegrasyon (2026-11-24)
+
+| Alan | Değer |
+|---|---|
+| Karar | Denetçi D1–D3'ü **kapattı** ve ek 422 işleyicisini kabul etti → **R1-O1 teknik teslimi kabul edildi** |
+| Kabul edilen kod SHA (PR #2 head) | `3ddbed1f280f65cfaf60e4ce56046eb873ffd17d` |
+| Kabul kanıtı (PR CI) | [run 45287345649](https://github.com/onurkilicce-ops/MedikaLLM/actions/runs/45287345649): katı backend **305 geçti / 0 atlandı**, frontend 53 test + build ✔. Denetçinin ayrı kopyası: 260 geçti / 45 PostgreSQL testi atlandı (sentetik PG olmadan) + 26 bağımsız sınır kontrolü geçti |
+| Merge öncesi doğrulama | PR head = `3ddbed1…`, hedef = `f549e59…` (ilerlememiş), iki kontrol yeşil; PR taslaktan "ready for review"a alındı; zorunlu inceleme/koruma uyarısı yoktu; yönetici bypass veya auto-merge kullanılmadı; SHA'lar onaydan hemen önce yeniden kontrol edildi |
+| Yöntem | GitHub "Create a merge commit" (squash/rebase yok) |
+| **Entegrasyon merge SHA** | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` — ebeveynler `f549e597…` + `3ddbed1f…`; ağacı `3ddbed1` ile birebir aynı (kod değişikliği yok) |
+| Merge commit CI | [run 45324703199](https://github.com/onurkilicce-ops/MedikaLLM/actions/runs/45324703199) (`push`, dal ucu `f4ab516…` checkout edildi — PR geçici birleşim ref'i değil): `uv lock --check` ✔, `uv sync --locked` (Py 3.12.12, 179 paket), gerçek paket importu ✔, `o200k_base` ✔, katı pytest **305 geçti / 0 atlandı** (katı mod tüm test modüllerinin toplanmasını zorunlu tutar), frontend işi ✔ |
+| Diğer ref'ler | `team-test/2026-11-22-checkpoint` (`f0a36e8…`) değişmedi. PR #1'in head'i bu dal olduğu için otomatik `f4ab516…` oldu; PR #1 düzenlenmedi/merge edilmedi. Kadir/Halil'e ait uzak dal yok. `feat/onur/r1-baseline` silinmedi |
+| Veri/şema | Değişiklik yok; geri almada veri işlemi gerekmez |
+
+Açık kalanlar (kabul kapsamı dışında):
+- **Canlı Groq** çağrısı doğrulanmadı (anahtar istenmedi, ücretli çağrı açılmadı).
+- **Gerçek DrugBank** verili veritabanıyla kontrol yapılmadı.
+- **Kadir (R1-K1, C1)** ve **Halil (R1-H1)** işleri kabul edilmedi; birleşik akış kontrolü yapılmadı.
+- Bu kabul M-01–M-06 başarı yüzdelerinin veya klinik kullanımın kabulü değildir.
+
+Ekip güncellemesi: Kadir ve Halil temiz çalışma ağacında `git fetch origin` sonrası
+`git merge --no-ff f4ab516fc23d3f4fbdb201029bd06a94f28d0616` ile alır. Sonraki kod denetimi
+Kadir'in R1-K1 teslimi; ardından Halil ve birleşik akış kontrolü.
+Geri alma gerekirse `f4ab516…` için ayrı bir revert PR'ı açılır (`git revert -m 1`);
+reset/force push yapılmaz.
 
 ---
 
