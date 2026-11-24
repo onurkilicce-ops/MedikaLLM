@@ -25,9 +25,10 @@ bağımsız olarak yeniden doğrulanmadı.
 | Ekip deposu | `onurkilicce-ops/MedikaLLM` (kaynak proje: `IsmailEsadKilic/MedicaLLM`) |
 | Entegrasyon dalı | `team-test/2026-11-23-stage-0-1` |
 | Ortak başlangıç SHA | `f549e597e41539704e9b39a5ff0e30e6af7c8cd8` |
-| **Güncel kabul edilmiş entegrasyon SHA** (2026-11-24) | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` — PR #2 (R1-O1) merge commit'i; ekip bu tam SHA'yı `git merge --no-ff` ile alır |
+| **Güncel kabul edilmiş entegrasyon SHA** (2026-11-24) | `c86dcc121047fe94a87b38245e8f467045afdb07` — PR #4 (R1-O2) merge commit'i; ekip bu tam SHA'yı `git merge --no-ff` ile alır (bkz. 9. bölüm) |
+| Önceki kabul edilmiş entegrasyon SHA | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` — PR #2 (R1-O1) merge commit'i (bkz. 8. bölüm) |
 | Önceki checkpoint | `team-test/2026-11-22-checkpoint` @ `f0a36e8ebf3441348170faa702d6bed9388cf4ae` |
-| Açık PR #1 | Yeni dalı eski checkpoint'e birleştirmeyi öneriyor; **Tur 1 görev PR'ı değildir**, merge/hedef değişikliği yapılmaz. Head'i bu entegrasyon dalının kendisi olduğu için PR #2 merge'üyle head ref'i otomatik olarak `f4ab516…`'ya ilerledi; PR #1'e dokunulmadı, tabanı (`f0a36e8…`) aynı |
+| Açık PR #1 | Yeni dalı eski checkpoint'e birleştirmeyi öneriyor; **Tur 1 görev PR'ı değildir**, merge/hedef değişikliği yapılmaz. Head'i bu entegrasyon dalının kendisi olduğu için PR #2 merge'üyle head ref'i otomatik olarak `f4ab516…`'ya, PR #4 merge'üyle `c86dcc1…`'ya ilerledi; PR #1'e dokunulmadı, tabanı (`f0a36e8…`) aynı |
 | Görev PR hedefi | Her görev PR'ı: base = `team-test/2026-11-23-stage-0-1` |
 | Güncelleme yöntemi | `git merge --no-ff <KABUL_EDİLMİŞ_TAM_SHA>`; force push / rebase / reset --hard yok |
 
@@ -135,6 +136,7 @@ ve aynı zamanda geçersiz gövdeli** istek 422 döner; token'sız geçerli göv
 | Görev | PR | Durum | Kabul edilen tam kod SHA | Entegrasyon merge SHA |
 |---|---|---|---|---|
 | R1-O1 | [#2](https://github.com/onurkilicce-ops/MedikaLLM/pull/2) `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` | **Teknik teslim kabul edildi; merge edildi** (2026-11-24, merge commit yöntemi). D1–D3 kapandı (bkz. 7–8. bölüm) | `3ddbed1f280f65cfaf60e4ce56046eb873ffd17d` | `f4ab516fc23d3f4fbdb201029bd06a94f28d0616` |
+| R1-O2 | [#4](https://github.com/onurkilicce-ops/MedikaLLM/pull/4) `fix/onur/r1-live-check` → `team-test/2026-11-23-stage-0-1` | **Teknik teslim kabul edildi; merge edildi** (2026-11-24, merge commit yöntemi). Bağımsız denetim merge **sonrasında** yapıldı (bkz. 9. bölüm) | `aa433861adb603aea30f486221d04c827156d464` | `c86dcc121047fe94a87b38245e8f467045afdb07` |
 | R1-K1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 | R1-H1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
 
@@ -175,7 +177,10 @@ yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
 - Form A'nın imzalı sürümü ve güncel kapsam eki yok.
 - Kapsam dışı kalanlar: lisans aktarımı, uzman değerlendirmesi, M-01–M-06 tam özellikleri, ücretli plan, dağıtım, hasta portalı.
 
-### R1-O2 — Kontrol komutunun doğru sonuç vermesi (teslim; teknik denetim bekliyor)
+### R1-O2 — Kontrol komutunun doğru sonuç vermesi (teslim kaydı)
+
+> **Tarihsel durum:** bu bölüm teslim anında yazıldı; o sırada teslim "teknik denetim bekliyor" idi ve
+> GitHub CI sonucu henüz yoktu. Güncel karar ve CI kanıtı: **9. bölüm** (kabul edildi, merge `c86dcc1…`).
 
 Başlangıç: entegrasyon `f4ab516fc23d3f4fbdb201029bd06a94f28d0616`; dal `fix/onur/r1-live-check`.
 M-06'nın çalışma altyapısını destekler; yeni tıbbi özellik veya klinik kabul değildir.
@@ -204,7 +209,7 @@ Kontroller (2026-11-24, yerel; Windows 11, Python 3.12.12, uv 0.10.7):
 | Aynı testler `git archive f4ab516` geçici kopyasındaki eski betiğe karşı | **37 başarısız**; dört denetim kusuru, boş `--only`, salt okunur kapalı ve eksik anahtar testleri `assert 0 == 1/2` (eski betik 0 döndürüyor) |
 | Katı tam paket (`MEDICALLM_STRICT_TESTS=1`, bu çalışmaya ait sentetik PG) | **342 geçti, 0 atlandı** (305 + 37); 16 test modülü toplandı; `uv lock --check` ✔ |
 | Frontend `npm ci`, `npm test`, `npm run build` | 53 test ✔, derleme ✔ |
-| GitHub CI (yeni commit) | PR'da görülecek |
+| GitHub CI (yeni commit) | Teslim anında: PR'da görülecek (sonuç 9. bölümde: run 45388253471, 342 geçti) |
 
 Sınırlı canlı kontrol (sentetik sonuçlardan ayrı):
 
@@ -274,17 +279,43 @@ Bu bölümdeki "düzeltme istendi" kararı `6350d0d…` için **tarihseldir**; g
 | Diğer ref'ler | `team-test/2026-11-22-checkpoint` (`f0a36e8…`) değişmedi. PR #1'in head'i bu dal olduğu için otomatik `f4ab516…` oldu; PR #1 düzenlenmedi/merge edilmedi. Kadir/Halil'e ait uzak dal yok. `feat/onur/r1-baseline` silinmedi |
 | Veri/şema | Değişiklik yok; geri almada veri işlemi gerekmez |
 
-Açık kalanlar (kabul kapsamı dışında):
+Açık kalanlar (kabul kapsamı dışında; **R1-O1 kabulü anındaki durum** — R1-O2'nin sınırlı canlı kontrolleri için 9. bölüm):
 - **Canlı Groq** çağrısı doğrulanmadı (anahtar istenmedi, ücretli çağrı açılmadı).
 - **Gerçek DrugBank** verili veritabanıyla kontrol yapılmadı.
 - **Kadir (R1-K1, C1)** ve **Halil (R1-H1)** işleri kabul edilmedi; birleşik akış kontrolü yapılmadı.
 - Bu kabul M-01–M-06 başarı yüzdelerinin veya klinik kullanımın kabulü değildir.
 
-Ekip güncellemesi: Kadir ve Halil temiz çalışma ağacında `git fetch origin` sonrası
-`git merge --no-ff f4ab516fc23d3f4fbdb201029bd06a94f28d0616` ile alır. Sonraki kod denetimi
-Kadir'in R1-K1 teslimi; ardından Halil ve birleşik akış kontrolü.
+Ekip güncellemesi (o anki): Kadir ve Halil temiz çalışma ağacında `git fetch origin` sonrası
+`git merge --no-ff f4ab516fc23d3f4fbdb201029bd06a94f28d0616` ile alır — **güncel SHA için 9. bölüm**.
+Sonraki kod denetimi Kadir'in R1-K1 teslimi; ardından Halil ve birleşik akış kontrolü.
 Geri alma gerekirse `f4ab516…` için ayrı bir revert PR'ı açılır (`git revert -m 1`);
 reset/force push yapılmaz.
+
+### 9. R1-O2 kabulü ve entegrasyon (2026-11-24)
+
+| Alan | Değer |
+|---|---|
+| Karar | Bağımsız denetim: **R1-O2 teknik teslimi kabul edildi**. Denetim, PR #4 merge edildikten **sonra** yapıldı |
+| Kabul edilen kod SHA (PR #4 head) | `aa433861adb603aea30f486221d04c827156d464` |
+| **Entegrasyon merge SHA** | `c86dcc121047fe94a87b38245e8f467045afdb07` — ebeveynler `f4ab516f…` + `aa433861…`; ağacı `aa43386` ile birebir aynı |
+| PR CI | [run 45388253471](https://github.com/onurkilicce-ops/MedikaLLM/actions/runs/45388253471): katı backend **342 passed in 17.13s**; frontend 53 test + build ✔ |
+| Merge push CI | [run 45389086776](https://github.com/onurkilicce-ops/MedikaLLM/actions/runs/45389086776): `c86dcc1…` checkout edildi; katı backend **342 passed in 15.76s**; frontend 53 test + build ✔ |
+| Bağımsız denetim kanıtı | İlgili 88 backend dosyası teslimin Git blob hash'leriyle eşleşti; ayrı kopyada 37 yeni test geçti; ilk dört regresyon testi eski betikte beklenen hataları yakaladı; ek 10 bağımsız kontrol geçti (8 CLI süreç denemesi + 2 sürücü bağlantı seçeneği kontrolü). Denetçi gerçek DB'ye veya sağlayıcıya bağlanmadı |
+| Değişiklik kapsamı | `check_live_stack.py`, `tests/test_check_live_stack.py`, README (yalnız komut), STATUS. Uygulama kodu, API (C1–C3), şema, bağımlılık, CI değişmedi; veri işlemi yok |
+
+Canlı kanıtın sınırı (uygulayıcının bildirdiği, denetçinin **tekrar çalıştırmadığı** iki ayrı koşum):
+- Gerçek Groq `--only normal_chat`, **boş sentetik** geliştirme DB'siyle: terminal `done`, 1 sağlayıcı çağrısı.
+- Gerçek DrugBank sayımı `--skip-llm` ile (sağlayıcı çağrılmadan): 17.430 / 33.839 / 2.855.848.
+- Bunlar **birleşik canlı ilaç akışı** değildir ve bağımsız canlı tekrar doğrulaması değildir; ilaç sorularının
+  kaynak doğruluğunu veya hasta analizini kanıtlamaz.
+
+Açık kalanlar: Kadir'in C1 üretimi (R1-K1), Halil'in ekran/geçmiş gösterimi (R1-H1), UI → API → araç → C1 → ekran
+birleşik akışı, gerçek DrugBank + gerçek sağlayıcı ile birlikte ilaç senaryoları, uzman değerlendirmesi ve
+M-01–M-06 ölçümleri. Bu kabul klinik kullanımın kabulü değildir.
+
+Ekip güncellemesi: Kadir ve Halil temiz çalışma ağacında `git fetch origin` sonrası
+`git merge --no-ff c86dcc121047fe94a87b38245e8f467045afdb07` ile alır.
+Geri alma gerekirse `c86dcc1…` için ayrı revert PR'ı (`git revert -m 1`); uygulama/veri geri yükleme gerekmez.
 
 ---
 
