@@ -5,6 +5,7 @@ import time
 from typing import Optional, TypedDict
 
 from fastapi import APIRouter, HTTPException, Request, status
+from fastapi.security import HTTPBearer
 
 from .models import (
     AuthResponse,
@@ -17,12 +18,18 @@ from .models import (
     VerificationCodeRequest,
 )
 from .service import (
+    CurrentPasswordIncorrect,
+    PasswordChangeUserNotFound,
+    change_password,
     get_user_by_email,
     login_user,
     register_user,
     reset_password,
     send_verification_email,
+    verify_token,
 )
+
+_optional_bearer = HTTPBearer(auto_error=False)
 from .email_utils import (
     canonicalize_email,
     is_disposable_domain,
@@ -313,55 +320,31 @@ async def endpoint_change_password(request: Request, body: ChangePasswordRequest
     # Resolve the bearer token manually so we keep the `@limiter.limit`
     # decorator in front of the handler. Adding a Depends arg here would
     # change the function signature SlowAPI inspects.
-    from fastapi.security import HTTPBearer
-    import bcrypt
-    from .service import verify_token
-    from ..db import get_session
-    from ..db.sql_models import UserRecord
-
-    bearer = HTTPBearer(auto_error=False)
-    creds = await bearer(request)
+    unauthorized = {"WWW-Authenticate": "Bearer"}
+    # HTTPBearer(auto_error=False) returns None for a missing header or a
+    # non-Bearer scheme instead of raising 403, so every "no usable token"
+    # case maps to 401 as the contract (C3) requires.
+    creds = await _optional_bearer(request)
     if not creds or not creds.credentials:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+        raise HTTPException(status_code=401, detail="Not authenticated", headers=unauthorized)
     try:
         user_id = verify_token(creds.credentials)
     except ValueError as exc:
-        raise HTTPException(status_code=401, detail=str(exc))
+        raise HTTPException(status_code=401, detail=str(exc), headers=unauthorized)
 
-    session = get_session()
     try:
-        user = (
-            session.query(UserRecord)
-            .filter(UserRecord.user_id == user_id)
-            .first()
-        )
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        if not bcrypt.checkpw(
-            body.current_password.encode("utf-8"),
-            user.password.encode("utf-8"),
-        ):
-            # Generic message: don't reveal whether the failure was wrong
-            # password vs disabled account so credential-stuffing gets
-            # less signal back.
-            raise HTTPException(
-                status_code=400, detail="Current password is incorrect"
-            )
-
-        user.password = bcrypt.hashpw(  # type: ignore
-            body.new_password.encode("utf-8"),
-            bcrypt.gensalt(),
-        ).decode("utf-8")
-        session.commit()
-        logger.info(f"[AUTH] Password changed for {user.email}")
-    except HTTPException:
-        raise
+        change_password(user_id, body.current_password, body.new_password)
+    except PasswordChangeUserNotFound:
+        # A valid signature for a user that no longer exists is not a usable
+        # credential; same answer as auth.dependencies.get_current_user.
+        raise HTTPException(status_code=401, detail="User not found", headers=unauthorized)
+    except CurrentPasswordIncorrect:
+        # Generic message: don't reveal whether the failure was wrong
+        # password vs disabled account so credential-stuffing gets
+        # less signal back.
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
     except Exception:
-        session.rollback()
         logger.error("change-password failed", exc_info=True)
         raise HTTPException(status_code=500, detail="Password change failed")
-    finally:
-        session.close()
 
     return {"success": True, "message": "Password changed successfully."}

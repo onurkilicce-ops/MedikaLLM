@@ -5,7 +5,217 @@ Bu dosya projenin **tek durum kaydıdır**; sonraki aşamalar buraya eklenir.
 tamamlanmış işlerin kanıtı değildir. Kapsam kaynağı: *SDP Project Forms A/B*
 (Form A "Before Edit With Client" — imzasız taslak; onaylı sözleşme sayılmaz).
 
+Düzen: **"Tur 1" bölümü güncel ortak ilerleme kaydıdır** (tek kayıt; yeni durum
+dosyası açılmaz). Altındaki "Aşama 0" ve "Aşama 0.1" bölümleri **tarihsel
+uygulayıcı raporlarıdır**, değiştirilmeden korunur; oradaki canlı ölçümler
+bağımsız olarak yeniden doğrulanmadı.
+
 ---
+
+## Tur 1 — Güncel ilerleme kaydı (başlangıç 2026-11-24)
+
+> Hiçbir MVP'nin (M-01…M-06) klinik kabulü yoktur. Testlerin geçmesi klinik
+> doğrulama değildir. Klinik kabul için uzmanın önceden belirlediği örnekler
+> gerekir (Form A 3.5: adlı hekim/eczacı, Hafta 7).
+
+### 1. Ortak başlangıç
+
+| Alan | Değer |
+|---|---|
+| Ekip deposu | `onurkilicce-ops/MedikaLLM` (kaynak proje: `IsmailEsadKilic/MedicaLLM`) |
+| Entegrasyon dalı | `team-test/2026-11-23-stage-0-1` |
+| Ortak başlangıç SHA | `f549e597e41539704e9b39a5ff0e30e6af7c8cd8` |
+| Önceki checkpoint | `team-test/2026-11-22-checkpoint` @ `f0a36e8ebf3441348170faa702d6bed9388cf4ae` |
+| Açık PR #1 | Yeni dalı eski checkpoint'e birleştirmeyi öneriyor; **Tur 1 görev PR'ı değildir**, merge/hedef değişikliği yapılmaz |
+| Görev PR hedefi | Her görev PR'ı: base = `team-test/2026-11-23-stage-0-1` |
+| Güncelleme yöntemi | `git merge --no-ff <KABUL_EDİLMİŞ_TAM_SHA>`; force push / rebase / reset --hard yok |
+
+Kapsam belgesi durumu: `SDP_Project_Forms_Enhanced.docx.pdf` (8 sayfa) okundu;
+Form A "Before Edit With Client" taslağıdır, imza/tarih, MVP "Owner" sütunu,
+fikri mülkiyet ve ödeme seçenekleri boştur. **Ayrı bir güncel kapsam eki
+bulunamadı** — eke bağlı kararlar (ör. MVP sahipliği, M-04 Türkiye OTC kaynağı,
+M-05 önem etiketleme yöntemi) eksik olarak açıktır.
+
+### 2. Görev ve dosya sahipliği (Tur 1)
+
+| Görev | Sahip | Dal | Değişiklik alanı | Dokunmaz |
+|---|---|---|---|---|
+| R1-O1 Tekrarlanabilir taban + mevcut API onarımı (C2, C3, CI) | Onur Kılıç (entegrasyon sorumlusu) | `feat/onur/r1-baseline` | README.md, STATUS.md, .github/workflows/ci.yml, .env.example, .gitignore, compose.local.yml, backend/pyproject.toml, backend/uv.lock, (zorunluysa) run.py/config.py/main.py/scripts/init_tables.py, auth/router.py + service.py + dependencies.py, drugs/router.py, users/service.py (yalnız ortak erişim kontrolü), tests/conftest.py, tests/integration/conftest.py, synthetic_data.py, test_api_shape.py, test_r1_auth_access.py, frontend/package.json + package-lock.json | agent/, session/, conversations/, frontend/src/, sql_models.py/migration |
+| R1-K1 Yanıt kanıtı C1 üretimi | Kadir Güllükaya | (Kadir'in görev dalı) | agent/, session/, conversations/ ve ilgili kanıt testleri | — |
+| R1-H1 C1 gösterimi + etkin hekim analizi yanıtı | Halil Samet Şen | (Halil'in görev dalı) | frontend/src/ (arayüz, API istemcisi, çeviri, yönlendirme, stil) | — |
+
+Okunabilir ama bu tur kimsenin değişiklik alanı olmayan: `drugs/service.py`,
+`drugs/models.py`, `pubmed/`. `backend/src/db/sql_models.py` ve şema/migration bu
+tur **değişmez**; ortak model isteği Onur'a gelir. Ortak bağımlılık dosyaları
+(`backend/pyproject.toml`, `uv.lock`, `frontend/package*.json`) tek sahibi Onur'dur.
+
+### 3. Ortak sözleşmeler — R1 hedefi
+
+**C1 / Yanıt kanıtı (üretici Kadir, tüketici Halil) — kararlaştırılan hedef, henüz uygulanmadı.**
+Mevcut `POST /api/session/query-stream` ve `POST /api/session/query` korunur;
+istek `{query, conversation_id, patient_id?: string|null, session_id?: string|null}`,
+Bearer yetkisi aynı. SSE `type` alanları ve `error/status/heartbeat` davranışı
+korunur; `done` olayına `answer_evidence` eklenir. Aynı nesne kaydedilen
+assistant `Message.debug.answer_evidence` içinde, `/query` yanıtındaki son
+assistant mesajında ve geçmiş okumasında bulunur. Yeni tablo/migration yok.
+
+Örnek (tamamen sentetik):
+
+```json
+{
+  "version": 1,
+  "mode": "source_extract",
+  "checks": [{"tool": "check_drug_interactions", "status": "found",
+              "unresolved_inputs": [], "requires_confirmation": [],
+              "pairs_checked": 1, "pairs_total": 1}],
+  "items": [{"source_ref": "REF1", "source_field": "interaction_description",
+             "quote": "[SYNTHETIC] Substance A changes the measured exposure of substance B.",
+             "truncated": false, "severity": null, "severity_status": "not_rated"}],
+  "limitations": ["model_narrative_withheld"]
+}
+```
+
+`sources[]` içindeki aynı `REF1`, gerçek araçtan gelen URL/başlıkla birlikte
+`evidence_fields: {"interaction_description": "[SYNTHETIC] Substance A changes the measured exposure of substance B."}` taşır.
+
+Kurallar (özet): `version`=1; `mode` ∈ `source_extract | insufficient_evidence | nonclinical`;
+`checks/items/limitations` daima dizi; `status` ∈ `found/no_record/incomplete/unresolved/error`;
+araç çalışmadıysa `checks=[]` + `limitations` içinde `not_checked` (klinik soruda
+`insufficient_evidence`); `pairs_*` negatif olmayan integer|null (bilinmeyen 0 yapılmaz);
+`quote` kaynak alanından aynen, kısaltma varsa `truncated=true` + görünür işaret;
+önem bu tur `null` + `not_rated`; `nonclinical` yalnız önceden belirlenmiş
+selam/yardım metinleri; `done.final_content`, kalıcı `Message.content` ve son
+assistant içeriği güvenilir şablon + orijinal alıntıdır, doğrulanmamış serbest
+model anlatısı normal yanıt/geçmiş/dışa aktarma olmaz; eski konuşmalar silinmez,
+"eski/doğrulanmamış" ele alınır; sayısal atıf veya PubMed kalite puanı iddianın
+desteklendiğini göstermez.
+
+C1 durum örnekleri (her biri Kadir'in ayrı sentetik testi olacak):
+
+| Araç sonucu | Beklenen `answer_evidence` |
+|---|---|
+| `found` | `mode=source_extract`, en az bir geçerli alıntı |
+| `no_record` (başarıyla tamamlanmış gerçek boş sonuç) | `mode=insufficient_evidence`, `items=[]`, "güvenli anlamına gelmez" bilgisi |
+| `unresolved` | `mode=insufficient_evidence`, `unresolved_inputs` dolu |
+| `incomplete` | varsa geçerli alıntılar + kontrol edilmeyenler ve sınırlamalar görünür |
+| araç hatası | `checks[].status=error`, sonuç bilinmiyor |
+| sağlayıcı/ulaşım hatası | mevcut terminal `error` olayı (answer_evidence ile başarı gibi sunulmaz) |
+
+**C2 / Mevcut hasta kontrolü (onarım Onur, tüketim Halil) — R1-O1 PR'ında uygulandı, kabul bekliyor.**
+`POST /api/drugs/analyze-patient`, Bearer, gövde `{patient_id: string, additional_drug_ids: string[] = []}`
+(serbest `chronic_conditions/allergies/current_medications` gövdesi sözleşme değildir).
+Yanıt mevcut `AnalyzePatientResponse` (değişmedi): `patient_id, status, current_drugs,
+interactions, count, unresolved_medications, medication_matches, not_checked_over_limit,
+pairs_checked, pairs_total, error, safe_alternatives=[], alternatives_note`;
+etkileşim `description` orijinal metin, `severity=null`, `severity_status=not_rated`,
+`source/source_url` korunur. 200 içinde `status=error` olabilir (HTTP 200 tek başına
+başarı kanıtı değildir). Oturumsuz/geçersiz/süresi geçmiş token veya silinmiş kullanıcı
+→ 401; yetkisiz → 403; olmayan hasta → 404; yanlış gövde → 422; erişim kontrolünde DB
+hatası → 500 (analiz çağrılmaz). Kayıtlı ilaç listesine yazılmaz. Yetki: mevcut
+politika (`users.service.resolve_patient_access`): doktor profili olan kullanıcı yalnız
+kendisine atanmış hastayı; değilse hasta profili olan kullanıcı yalnız kendi kaydını.
+Dış kimlikler (`user_id`, `patient_id`) yalnız kendi sütunlarıyla, sahiplik/atama iç
+sayısal anahtarlarla karşılaştırılır.
+
+**C3 / Parola değiştirme (Onur) — R1-O1 PR'ında uygulandı, kabul bekliyor.**
+`POST /api/auth/change-password`, Bearer, `{current_password, new_password}`. Başarı
+`200 {success: true, message: string}`; token yok/bozuk/süresi geçmiş/Bearer değil,
+imzası doğru ama `userId` iddiası eksik/null/boş/metin olmayan token veya kullanıcı kaydı
+yok → 401; yanlış mevcut parola (veya bcrypt olmayan kayıtlı değer) → 400; kurallara
+uymayan yeni parola (UTF-8'de 72 baytı aşan dahil), eksik alan → 422; DB/commit hatası → 500
+(`{"detail":"Password change failed"}`, başarı görünmez). Yalnız bu kullanıcının hash'i,
+tek işlemde, mevcut doğrulamadan sonra değişir; başarısız denemede kayıt değişmez.
+Not: gövde doğrulaması FastAPI'de yetki kontrolünden önce çalıştığı için **token'sız
+ve aynı zamanda geçersiz gövdeli** istek 422 döner; token'sız geçerli gövde 401'dir.
+
+### 4. Kabul edilen PR / SHA kaydı
+
+| Görev | PR | Durum | Kabul edilen tam SHA | Entegrasyon merge SHA |
+|---|---|---|---|---|
+| R1-O1 | [#2](https://github.com/onurkilicce-ops/MedikaLLM/pull/2) `feat/onur/r1-baseline` → `team-test/2026-11-23-stage-0-1` (taslak) | `6350d0d…` denetlendi → **düzeltme istendi** (D1–D3); düzeltmeler PR'a eklendi, **yeniden denetim bekliyor** (bkz. 7. bölüm) | — | — |
+| R1-K1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
+| R1-H1 | — | Kabul edilmedi / bu kayıtta görülmedi | — | — |
+
+Kadir ve Halil işleri bu kayıtta **tamamlanmış sayılmaz**; denetçi kabulünden sonra
+tam SHA ile bu tabloya eklenir.
+
+### 5. Çalıştırılan / atlanan kontroller (R1-O1, 2026-11-24)
+
+Ortam: Windows 11 Pro 10.0.26200; Python 3.12.12 (uv ile); uv 0.10.7; Node 24.19.0 /
+npm 11.17.0; Git 2.53.0; PostgreSQL 16.2 (pgvector + pg_trgm), bu çalışma için yeni
+oluşturulmuş geçici küme (127.0.0.1:55433) ve iki yeni veritabanı (`medicallm_r1_synth`
+testler, `medicallm_r1_app` uygulama açılışı). Docker bu bilgisayarda yok. Klon:
+yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
+
+| Kontrol | Sonuç |
+|---|---|
+| `uv lock --check` | Geçti (kilit değişmedi) |
+| `uv sync --locked --python 3.12` (temiz `.venv`) | Geçti, 39 sn |
+| Backend tam paket, katı mod (`MEDICALLM_STRICT_TESTS=1`, sentetik PG, tiktoken verisi hazır) | **240 geçti, 0 atlandı, 0 başarısız**; 15 test modülünün hepsi toplandı |
+| Aynı, yeni testler düzeltilmemiş kaynağa karşı (`git stash -- backend/src`) | 46 yeni testten 28'i başarısız/hata (hatalar gerçekten yakalanıyor) |
+| Katı mod, PG adresi yok | Toplama başında açık hata |
+| Katı mod, tokenizer verisi yok + ağ kapalı | 2 test **başarısız** (katı olmayan modda aynı 2 test atlanıyor) |
+| Sıfırlama koruması, onay değişkeni yok | `RuntimeError`, hiçbir şey silinmedi |
+| Frontend `npm ci --no-audit --no-fund`, `npm test`, `npm run build` | 53 test geçti; derleme başarılı (yalnız mevcut paket boyutu uyarısı; npm 11 esbuild `allow-scripts` uyarısı) |
+| Temiz açılış: `.env.example`→`.env`, `init_tables.py`, `uv run python run.py`, `npm run dev` | 26 tablo oluştu; `/health` `status=ok`, `db=ok`, `llm.api_key_configured=false`; arayüz 200 |
+| Sentetik uçtan uca API (2 hekim kaydı, hekimin oluşturduğu hasta, C2 ve C3) | **18/18**; verisiz DB'de analiz `status=unresolved` (ilaçlar bulunamadı), kayıtlı ilaç listesi değişmedi |
+| Arayüz: sentetik hekim girişi → /chat; Ayarlar → "Şifreyi değiştir" | "Şifre güncellendi"; eski parola 401, yeni 200 |
+| GitHub Actions, run 45279282702 (PR #2, `c1989596…` birleşik ref `65c88244…`) | **Yeşil.** Backend: `uv lock --check` ✔, `uv sync --locked` (Py 3.12.12, 179 paket, 33 sn), gerçek paket importu ✔, `o200k_base` hazır, katı pytest **240 geçti** (8,8 sn), job 1 dk 22 sn. Frontend: 19 sn ✔. İlk push koşusu (`5c542da`) geçersiz workflow ifadesi (`runner` bağlamı job `env`'de) nedeniyle iş başlatamadı; `c198959` ile düzeltildi |
+| **Canlı LLM (Groq) doğrulaması** | **Eksik.** Mevcut yapılandırmayla küçük bir çağrı bu oturumun izin kuralı tarafından engellendi; anahtar istenmedi. `/health` LLM'in çalıştığını göstermez |
+| DrugBank verili gerçek DB | Yapılmadı (veri bu klonda yok; yeniden içe aktarma yapılmadı) |
+
+### 6. Kalan engeller ve açık noktalar
+
+- CI yeşil, ancak kilitli kurulum CUDA'lı torch (~3 GB) indiriyor; şimdilik 33 sn. GitHub, `actions/*@v4` ve `setup-uv@v6` için Node 20 kullanım dışı uyarısı veriyor (sürüm yükseltmesi ayrı, küçük iş).
+- Canlı Groq akışı ve gerçek DrugBank verisiyle uçtan uca kontrol: anahtar/veri sahibi ekip üyesinin kendi bilgisayarında ayrıca.
+- Halil: etkin `doctor/PatientDetail.jsx` `/api/session/query` yanıtında `response/content` bekliyor, backend `AgentResponse.messages` döndürüyor (R1-H1). C2 yanıt şekli değişmedi; gerçek birleşik kabul R1-O1 kabulünden sonra.
+- Kadir: C1 üretimi (R1-K1). `citations.py` yalnız atıf numarası ve atıfsız satır sayar; kaynakta olmayan iddiayı yakalamaz (denetim bulgusu).
+- Form A'nın imzalı sürümü ve güncel kapsam eki yok.
+- Kapsam dışı kalanlar: lisans aktarımı, uzman değerlendirmesi, M-01–M-06 tam özellikleri, ücretli plan, dağıtım, hasta portalı.
+
+### 7. Denetim R1-O1-D1 (PR #2, denetlenen `6350d0de6dd90f2cef4f999b925399e173bce4d6`)
+
+Denetçi kararı: **düzeltme istendi**. Korunan kazanımlar (denetçi doğruladı): parola
+değiştirme import hatası giderildi; hasta analizindeki iç/dış kimlik karışıklığı düzeltildi;
+`resolve_patient_access` ortak politika; CI run 45280426778'de backend 240, frontend 53
+test + derleme başarılı. Denetçi temiz kurulumu ve 18 API kontrolünü yeniden çalıştırmadı;
+canlı Groq ve gerçek DrugBank doğrulaması eksik.
+
+| Bulgu | Sorun (6350d0d) | Düzeltme | Kanıt |
+|---|---|---|---|
+| D1 Test DB hedefi | Koruma URL'yi `urlparse` ile okuyordu; `…/audit_synth?dbname=unapproved_app` ve `…?host=unapproved.example.invalid` kabul ediliyordu, sürücü ise başka DB/host kullanıyordu (yeniden üretildi) | `synthetic_data.resolve_reset_target`: denetim psycopg2 lehçesinin `create_connect_args` çıktısı üzerinde; URL sorgu seçenekleri tamamen reddedilir; `PGHOSTADDR`/`PGSERVICE` tanımlıysa ret; yalnız `postgresql`/`postgresql+psycopg2`; doğrulanan URL nesnesiyle bağlanılır; bağlantıdan sonra `current_database()` onaylanan adla aynı olmalı. Önceki ad/loopback/onay/envanter korumaları aynen | 14 reddedilen URL + 2 ortam değişkeni testinde `create_engine`/`drop_all`/`create_all` hiç çağrılmıyor; sürücü hedefi = denetlenen hedef (3 URL); izinli sentetik DB sıfırlanmaya devam ediyor |
+| D2 72 bayt | `ChangePasswordRequest` 73+ baytlık parolayı kabul ediyor, bcrypt 5 hash'te hata → 500 | `auth/models.py`: yeni parola UTF-8'de 72 baytı aşarsa doğrulama hatası (422, mesajda "72 bytes"); kesme yok, algoritma/migration yok | ASCII 72 bayt ve 38 karakter/72 bayt (`ü`) uçtan uca 200, eski parola 401, yeni 200, son karakter eksikken 401; 73/74 bayt 422, kayıt değişmiyor; birim: 3 kabul, 3 ret (2 ve 3 baytlık karakterler) |
+| D3 `userId`siz token | `verify_token` `payload["userId"]` → `KeyError` → change-password 500 (hız sınırlayıcının anahtar fonksiyonunda da aynı yol) | `verify_token`: yalnız JWT hataları ve eksik/null/boş/boşluk/metin olmayan `userId` → `ValueError("Invalid token")` → 401. Kimlik biçimi daraltılmadı; diğer istisnalar gizlenmiyor | 8 bozuk iddia biçimi × (verify_token, change-password, analyze-patient): 401, parola/analiz servisi ve DB oturumu çağrılmıyor; geçerli/süresi geçmiş/yanlış imzalı token davranışı aynı |
+
+Ek (uygulayıcının kendi bağımsız 3 ajanlı adversarial incelemesi, salt okunur):
+- D1 için `reset_and_seed`'in bağlantı sonrası `current_database()` denetimini gerçekten
+  çalıştırdığını gösteren test eksikti → eklendi (sahte bağlantı başka DB bildirince
+  DROP/CREATE yok, yalnız okuma sorgusu).
+- JSON'da eşsiz UTF-16 vekil karakter (`"\ud800"`) içeren parola alanı, FastAPI'nin
+  varsayılan 422 işleyicisi girdiyi geri yansıtırken UTF-8 kodlayamadığı için **500**
+  veriyordu (yeniden üretildi; uygulama genelinde, doğrulama hatası olan her alan için).
+  `src/main.py`: aynı durum kodu ve gövdeyle (`{"detail": jsonable_encoder(exc.errors())}`)
+  ama ASCII-kaçışlı JSON üreten `RequestValidationError` işleyicisi → 422. Ayrıştırılan veri
+  varsayılanla aynı; diğer 422 testleri değişmeden geçiyor.
+- Anahtarla imzalanmış `exp`/`nbf` = sonsuz token PyJWT'de `OverflowError` → 500 (önceden
+  vardı, yalnız imza anahtarına sahip biri üretebilir) → `verify_token` bunu "Invalid token"
+  sayar → 401. Diğer istisnalar 401'e çevrilmedi.
+- İnceleyicinin denediği ve **sorun bulmadığı** yollar: yüzde kodlama, userinfo hileleri,
+  IPv6/`0.0.0.0`/`localhost.`, unix soketi, çoklu host, `PGHOST`/`PGDATABASE`
+  (açık değerler önceliklidir), boş `PGSERVICE`; 4 baytlık emoji ve birleşik karakterlerle
+  72 bayt sınırı; NUL içeren parola (bcrypt 5 kesmiyor); 100 baytlık mevcut parola → 400.
+
+Regresyon kanıtı: yeni testler `git archive 6350d0d` ile ayrı geçici kopyaya alınıp
+çalıştırıldı → **49 başarısız** (D1 15, D2 7, D3 22, inceleme ekleri 5; 74 geçti —
+eski sürümün zaten doğru olduğu sınır durumları). Düzeltilmiş ağaçta katı mod
+(`MEDICALLM_STRICT_TESTS=1`, sentetik PG): **305 geçti, 0 atlandı** (240 + 65 yeni).
+`uv lock --check` ✔; frontend `npm ci`, 53 test, derleme ✔. Kilit/bağımlılık/CI değişmedi.
+Not: kayıt (`/verification-code`) ve parola sıfırlama akışları 72 baytı aşan parolada
+500 değil 400 döner (hata kod adımında yakalanıyor); bu turda değiştirilmedi.
+
+---
+
+# Tarihsel raporlar (değiştirilmedi)
 
 ## Aşama 0 — Sohbet ve etkileşim akışının güvenilirliği (2026-11-17/18)
 

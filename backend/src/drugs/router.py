@@ -95,36 +95,30 @@ async def endpoint_analyze_patient(
     body: AnalyzePatientRequest,
     current_user: UserBase = Depends(get_current_user),
 ):
-    """Analyze a patient's medications for interactions. Accessible by the patient themselves or an assigned doctor."""
+    """Analyze a patient's recorded medications for interactions.
+
+    Access follows the shared patient-record policy
+    (``users.service.resolve_patient_access``): the patient's own record, or
+    a patient assigned to the calling doctor. The analysis service is only
+    called after that check succeeded. Nothing is written to the patient's
+    medication list.
+    """
     from ..db.sql_client import get_session
-    from ..db.sql_models import PatientRecord, DoctorPatientAssociation, DoctorRecord
+    from ..users.service import PATIENT_ACCESS_GRANTED, PATIENT_NOT_FOUND, resolve_patient_access
 
     session = get_session()
     try:
-        patient = session.query(PatientRecord).filter(
-            PatientRecord.patient_id == body.patient_id
-        ).first()
-        if not patient:
-            raise HTTPException(status_code=404, detail="Patient not found")
-
-        # Authorization: patient can analyze own meds, assigned doctor can too
-        is_self = str(patient.user_pk) == current_user.user_id
-        is_assigned_doctor = False
-        if current_user.is_doctor:
-            doctor = session.query(DoctorRecord).filter(
-                DoctorRecord.user_pk == current_user.user_id
-            ).first()
-            if doctor:
-                assoc = session.query(DoctorPatientAssociation).filter(
-                    DoctorPatientAssociation.doctor_id == doctor.doctor_id,
-                    DoctorPatientAssociation.patient_id == body.patient_id,
-                ).first()
-                is_assigned_doctor = assoc is not None
-
-        if not is_self and not is_assigned_doctor:
-            raise HTTPException(status_code=403, detail="Not authorized to analyze this patient's medications")
+        _, outcome = resolve_patient_access(session, body.patient_id, current_user.user_id)
+    except Exception:
+        logger.error("Patient access check failed", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to analyze patient medications")
     finally:
         session.close()
+
+    if outcome == PATIENT_NOT_FOUND:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if outcome not in PATIENT_ACCESS_GRANTED:
+        raise HTTPException(status_code=403, detail="Not authorized to analyze this patient's medications")
 
     try:
         result = service.analyze_patient(body)

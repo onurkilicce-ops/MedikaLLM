@@ -1,77 +1,117 @@
 name: CI
 
-# Runs on every PR and on every push to main (the second is a safety net
-# in case someone bypasses branch protection — should be rare).
+# Runs on every PR, on pushes to main and to the team integration branches,
+# and on demand. No deployment, no health monitor, no paid provider, no API
+# key and no DrugBank data are involved.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "team-test/**"]
+  workflow_dispatch:
 
-# Cancel in-progress runs on the same PR when a new commit lands.
+permissions:
+  contents: read
+
+# Cancel in-progress runs on the same ref when a new commit lands.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   backend:
-    name: Backend tests
+    name: Backend tests (locked deps + synthetic PostgreSQL)
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
+
+    services:
+      # Throw-away database that exists only for this job. Its name ends in
+      # _synth and is confirmed via MEDICALLM_SYNTHETIC_PG_CONFIRM below;
+      # tests/integration/synthetic_data.py refuses anything else.
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: synth
+          POSTGRES_PASSWORD: synth
+          POSTGRES_DB: medicallm_ci_synth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U synth -d medicallm_ci_synth"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      # Public tokenizer data (tiktoken o200k_base) used by the token-budget
+      # tests. Prepared explicitly below; never downloaded silently mid-test.
+      TIKTOKEN_CACHE_DIR: ${{ github.workspace }}/.cache/tiktoken
+      # The embedding model is never needed by the test suite.
+      HF_HUB_OFFLINE: "1"
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.11"
-          cache: pip
+          version: "0.10.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
 
-      - name: Install backend deps
+      - name: Check the lockfile is up to date
+        working-directory: backend
+        run: uv lock --check
+
+      - name: Install locked backend dependencies (incl. dev group)
+        working-directory: backend
+        run: uv sync --locked --python 3.12
+
+      - name: Verify the real packages import (no stubs)
         working-directory: backend
         run: |
-          python -m pip install --upgrade pip
-          # Test deps — pytest layer + the framework deps the integration
-          # tests pull in via the FastAPI app. We deliberately skip the
-          # heavyweight prod deps (langchain, sentence-transformers,
-          # pgvector compile) — the test suite stubs the relevant
-          # boundaries and imports lazily where ORM models would otherwise
-          # require them. pgvector is faked in tests/conftest.py so
-          # sql_models can import its Vector type without the real C build.
-          pip install --upgrade \
-            "pytest>=8.0.0" \
-            "pytest-asyncio>=0.24.0" \
-            "httpx>=0.27.0" \
-            "fastapi>=0.119.1" \
-            "uvicorn>=0.38.0" \
-            "pydantic>=2.0.0" \
-            "pydantic-settings>=2.0.0" \
-            "python-dotenv>=1.0.0" \
-            "email-validator>=2.0.0" \
-            "bcrypt>=4.0.0" \
-            "pyjwt>=2.8.0" \
-            "sqlalchemy>=2.0.0" \
-            "psycopg2-binary>=2.9.0" \
-            "slowapi>=0.1.9" \
-            "aiosmtplib>=3.0.0" \
-            "icecream>=2.1.8" \
-            "cachetools>=5.3.0"
+          uv run --no-sync python -c "
+          import importlib, sys
+          mods = ['openai', 'langchain', 'langchain_core', 'langchain_openai', 'langgraph',
+                  'pgvector.sqlalchemy', 'tiktoken', 'psycopg2', 'fastapi', 'sqlalchemy']
+          for m in mods:
+              mod = importlib.import_module(m)
+              print(m, getattr(mod, '__version__', ''))
+          print(sys.version)
+          "
 
-      - name: Run pytest
+      - name: Cache tokenizer data
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/tiktoken
+          key: tiktoken-o200k_base-${{ hashFiles('backend/uv.lock') }}
+
+      - name: Prepare tokenizer data (fails the job if unavailable)
+        working-directory: backend
+        run: uv run --no-sync python -c "import tiktoken; tiktoken.get_encoding('o200k_base'); print('o200k_base ready')"
+
+      - name: Run pytest (strict - any skip fails)
         working-directory: backend
         env:
-          # Tests stub out the real DB / agent, but the config module
-          # still validates that JWT_SECRET / ADMIN_PASSWORD aren't blank
-          # in non-dev contexts. Provide harmless placeholders.
+          # Strict mode: required packages must import, every skip is a
+          # failure, and every tests/**/test_*.py module must collect tests.
+          MEDICALLM_STRICT_TESTS: "1"
+          MEDICALLM_SYNTHETIC_PG_URL: postgresql://synth:synth@127.0.0.1:5432/medicallm_ci_synth
+          MEDICALLM_SYNTHETIC_PG_CONFIRM: medicallm_ci_synth
+          # Placeholders only. The app database URL points at a closed port so
+          # nothing outside the synthetic DB can be reached; the LLM URL is
+          # unroutable and no key is set.
           JWT_SECRET: ci-test-secret-not-for-production
           ADMIN_PASSWORD: ci-test-admin
-          DO_POSTGRES_URL: postgresql://test:test@localhost:5432/medicallm_test
-        run: pytest -v --tb=short
+          DO_POSTGRES_URL: postgresql://unused:unused@127.0.0.1:1/unused_app_db
+          DB_SSLMODE: disable
+          LLM_BASE_URL: http://127.0.0.1:9/v1
+          DO_MODEL_ACCESS_KEY: ""
+        run: uv run --no-sync pytest tests -p no:cacheprovider -q --tb=short -ra
 
   frontend:
     name: Frontend tests + build
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +125,7 @@ jobs:
 
       - name: Install frontend deps
         working-directory: frontend
-        run: npm ci
+        run: npm ci --no-audit --no-fund
 
       - name: Run vitest
         working-directory: frontend
@@ -96,5 +136,5 @@ jobs:
         env:
           VITE_USE_HTTPS: "true"
         # We also build in CI so a typo that compiles but breaks the prod
-        # bundle (e.g. an unresolved import) shows up before deploy.
+        # bundle (e.g. an unresolved import) shows up before merge.
         run: npm run build
