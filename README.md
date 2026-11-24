@@ -126,6 +126,37 @@ Frontend (`frontend/` içinde): `npm test` ve `npm run build`.
 
 CI (`.github/workflows/ci.yml`): her PR'da backend için `uv lock --check`, `uv sync --locked`, gerçek paketlerin içe aktarılması, sentetik PostgreSQL servisiyle katı modda tüm testler; frontend için `npm ci`, `npm test`, `npm run build`. Ücretli sağlayıcı, API anahtarı ve gerçek DrugBank verisi gerekmez. Otomatik dağıtım/sağlık izleme workflow'u yoktur.
 
+## Canlı yığın kontrolü (`backend/scripts/check_live_stack.py`)
+
+Kendi yapılandırmanızla (veritabanı + LLM sağlayıcısı) yığının gerçekten çalışıp çalışmadığını **hiçbir şey yazmadan** denetler. Veritabanına salt okunur bağlanır; sohbet kayıtları belleğe yazılır, veritabanına değil. LLM senaryoları gerçek sağlayıcı çağrısı yapar ve kotadan düşer.
+
+```powershell
+cd backend
+uv run python scripts/check_live_stack.py --skip-llm                 # yalnız DB; sağlayıcı çağrısı yok
+uv run python scripts/check_live_stack.py --only normal_chat         # tek, tıbbi olmayan selam senaryosu
+uv run python scripts/check_live_stack.py --only normal_chat --out live_check.json
+```
+
+`--only` virgülle ayrılmış senaryo adları alır (`normal_chat`, `single_drug`, `two_drug_interaction`, `follow_up_same_conversation`, `unknown_drug`, `no_record_pair`, `pubmed_three_articles`, `back_to_back_first`, `back_to_back_second`). Boş değer, boş öğe veya bilinmeyen tek bir ad bile tüm isteği **bağlantı kurulmadan** reddeder; hiçbir zaman "kısmen çalıştır" ya da "hepsini çalıştır"a dönüşmez. Bayrak verilmezse dokuz senaryonun hepsi çalışır (kota harcar).
+
+**Çıkış kodları** (raporun `overall.exit_code` alanı her zaman süreç çıkış koduyla aynıdır):
+
+| Kod | Anlamı |
+|---|---|
+| 0 | İstenen **her** kontrol çalıştı ve başarılı oldu. `--skip-llm` ile LLM `skipped_by_flag` olarak raporlanır; bu, sağlayıcının çalıştığının kanıtı **değildir** (`overall.llm_provider_verified: false`). |
+| 1 | İstenen bir kontrol başarısız oldu ya da çalıştırılamadı: DB'ye bağlanılamadı, `transaction_read_only` `on` doğrulanamadı, tablo yok/okunamadı, API anahtarı yok, ajan kurulamadı, sağlayıcı hatası, terminal `done` olayı gelmedi, boş yanıt ya da kayıtlı sağlayıcı çağrısı yok. Başarısız ön koşuldan sonraki aşamalar `not_run_*` olarak raporlanır, başarılı sayılmaz. |
+| 2 | Geçersiz çağrı (ör. bilinmeyen/boş `--only`); veritabanına ve sağlayıcıya hiç dokunulmadan reddedilir. |
+
+**Rapor alanları** (JSON, `report_version: 2`):
+
+- `database.status`: `ok` / `error` / `read_only_not_confirmed`. Okuma sırası: bağlantı (`connected`) → `transaction_read_only` (`on` değilse başka hiçbir şey okunmaz) → tablo başına `exists` ve `count`. Gerçek sıfır `0`, okunamayan sayı `null` + `error` olarak gösterilir; ikisi asla karışmaz.
+- `database.drug_data`: `present` (üç tablo da dolu) / `empty` / `partial` / `unknown`. Boş geliştirme DB'si DB aşamasını geçer ama `overall.drugbank_data_present: false` olur — DrugBank verisinin doğrulanması değildir. Satır sayıları klinik içeriğin doğruluğunu kanıtlamaz.
+- `agent.status`: `ok` / `error` / `not_attempted` (ör. `--skip-llm`, DB veya anahtar ön koşulu yok).
+- `llm.status`: `ok` / `failed` / `skipped_by_flag` (bilinçli atlama) / `not_run_missing_key` (anahtar yok — başarısızlık) / `not_run_prerequisite_failed`. Senaryo başına `status`, `failure_reason` (`terminal_error`, `no_terminal_done`, `empty_answer`, `no_provider_call_recorded`), `terminal_event`, `llm_usage` (sağlayıcının bildirdiği çağrı/token sayısı) ve `provider_limits_after`. İlk başarısız senaryodan sonra kalanlar `not_run_after_failure` olur (kota boşa harcanmaz).
+- `overall`: `status`, `exit_code`, `failures`, `llm_provider_verified`, `drugbank_data_present`.
+
+Rapor şifre, API anahtarı, yetki başlığı veya bağlantı URL'si içermez; hatalar yalnız tür adıyla (`ConnectionError` vb.) yazılır. Bir senaryonun başarılı olması o yanıtın tıbbi doğruluğunu kanıtlamaz; "etkileşim kaydı yok" güvenli anlamına gelmez.
+
 ## Sorun bildirme
 
 İşletim sistemi, `git rev-parse --short HEAD`, çalıştırdığınız adım, beklediğiniz sonuç ve kişisel bilgileri/anahtarları temizlenmiş hata metni.
