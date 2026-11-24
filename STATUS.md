@@ -257,6 +257,98 @@ eski sürümün zaten doğru olduğu sınır durumları). Düzeltilmiş ağaçta
 Not: kayıt (`/verification-code`) ve parola sıfırlama akışları 72 baytı aşan parolada
 500 değil 400 döner (hata kod adımında yakalanıyor); bu turda değiştirilmedi.
 
+### M02-O1 — Kaynaklı zaman verileri ve bağımsız API (teslim; bağımsız denetim bekliyor)
+
+**Sahiplik kararı (kullanıcı, 2026-11-24):** M-02 (Form A, s.5) Onur Kılıç'a verildi.
+Onur'a ayrılan sonraki alanlar: `backend/src/timing/**`, `frontend/src/features/timing/**`,
+`frontend/src/pages/MetabolismTiming.jsx` (ortak `frontend/src/main.jsx` yönlendirmesi
+Halil'de; gerekince entegrasyonda koordine edilir). Kadir (R1-K1/C1) ve Halil (R1-H1)
+işlerine dokunulmadı. Form A hâlâ imzasız "Before Edit With Client" taslağıdır.
+
+| Alan | Değer |
+|---|---|
+| Dal / taban | `feat/onur/m02-timing`, `c86dcc121047fe94a87b38245e8f467045afdb07`'den açıldı (entegrasyon ucu aynıydı; dal yoktu) |
+| Bu teslim | Salt okunur `POST /api/timing/compare` + kural tabanlı ayrıştırıcı + ≈5× yarılanma ömrü nesnesi + salt okunur envanter betiği |
+| Sözleşme | `backend/src/timing/API.md` (`m02-timing-compare/1`), kurallar `backend/src/timing/RULES.md` (`m02-text-parser/1`), OpenAPI |
+| Değişmeyen | Şema/migration, bağımlılık/kilit, CI, frontend, `drugs/`, auth, ortak fixture'lar, C1–C3 |
+| M-02 tamam mı? | **Hayır.** Ekran (ortak zaman çizelgesi), kaynaklı zaman aralığı önerileri (ilaç–gıda örnekleri dahil, ör. kalsiyumdan etkilenen antibiyotik), sohbet bağlantısı ve Form A ≥%90 uzman kabulü yapılmadı |
+
+Önemli kararlar: (1) LLM yok; nesnel düzenli ifade kuralları, kural dışı metin değer
+değil inceleme kalemi olur (güven yüzdesi yok). (2) `get_user_by_id` DB hatasını
+"kullanıcı yok"a çevirdiği ve `drugs.service.get_drug` hataları `None` yaptığı için M-02
+kendi küçük okuma yolunu kullanır (`timing/repository.py`): her okuma `SET TRANSACTION
+READ ONLY`, yalnız gereken sütunlar ve satır içi belirteçle eşleşen referans satırları;
+her DB hatası 503. Yetki: mevcut Bearer + `verify_token`, profesyonel = doktor profili
+(mevcut `is_doctor` tanımı); yeni rol yok. (3) Değer ile türetilmiş süre ayrı nesneler;
+aralık sınırları ayrı çarpılır; Tmax eklenmez. (4) `timing_advice.status=not_evaluated`,
+`advice=[]`.
+
+**Kanıt (2026-11-24, Windows 11, Python 3.12.12, uv 0.10.7, PostgreSQL 16.2 portatif;
+bu çalışma için açılan geçici küme `127.0.0.1:55440`, `medicallm_m02_synth`):**
+
+| Kontrol | Sonuç |
+|---|---|
+| Taban `c86dcc1`, katı mod, sentetik PG | 342 geçti, 0 atlandı (önceki kayıtla aynı) |
+| Önceden kaydedilmiş beklenen sonuç tabloları (`tests/fixtures/m02_cases_*.json`, 94 sentetik durum) | Yalnız RULES.md + tipli sözleşmeden, uygulamayı görmeyen iki bağımsız ajan yazdı; ilk koşudan **önce** SHA-256 alındı (`0d872a9e…`, `f9587908…`) ve sonra değişmedi. İlk koşu 87/94: 3 gerçek uygulama hatası + kurallarda olmayan 1 sessiz "iyileştirme" bulundu; uygulama düzeltildi, tablolar değil |
+| Bağımsız adversarial inceleme, 1. tur (3 mercek + doğrulayıcı) | 23 bulgunun 21'i yeniden üretildi ve gerçek kusur sayıldı (Unicode tire aralıkları, boşluksuz `.[A1]`, `AUC0–24h`, "from X to Y" değişimi, sayı listeleri, başka olay süreleri, koşul kayması, referans paylaşımı, ASCII olmayan kimlik, OpenAPI zorunlu alanları …). Hepsi düzeltildi; regresyon testleri `test_m02_review_regressions.py` |
+| 2. tur (düzeltmelerin getirdiği hatalara odaklı + ön bilgisiz mercek, doğrulayıcı) | 19 bulgunun 19'u yeniden üretildi (saat yazımı `1:30`, olumsuz karşılaştırma, değişim fiilleri, `1 h 30 min`, eşli ölçüm listeleri, başka olay cümlecikleri, eşgüdümlü koşullar, giriş ifadesinin karşıt gruba taşınması, parantez içi `;`, 0'a yuvarlanma/`inf`, `i.v.` sonrası cümle sonu …). Genel kurallarla düzeltildi (RULES.md 8a); regresyon testleri `test_m02_review_round2.py`. Üçüncü tur çalıştırılmadı |
+| M-02 testleri | Birim: ayrıştırıcı/hesap/model (94 önceden kayıtlı + görev örnekleri + regresyonlar); entegrasyon: HTTP → yetki → servis → sentetik PG (200 kaynaklı / eksik veri / bilinmeyen / tümü bilinmeyen / 10 sınırı, 401 ×6, 403 ×2, 422 ×14, 503 ×3 [kullanıcı okuması, ilaç okuması, sorgu hatası], salt okunur işlem ve yazma yok, LLM çağrısı yok, OpenAPI) ve envanter betiği |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`), `uv lock --check` | **612 geçti, 0 atlandı** (342 + 270 M-02); kilit temiz |
+| Frontend `npm ci`, `npm test`, `npm run build` (değiştirilmedi) | 5 dosya, 53 test geçti; derleme başarılı (yalnız mevcut npm 11 `allow-scripts` uyarısı; kilit dosyası değişmedi) |
+| README'deki 5 adım, ayrı `medicallm_demo_synth` ile birebir | Uygulama açıldı (`/health` db ok); iki ilaç: Tmax 0,5–1 sa (uygulamadan sonra), yarılanma ömrü 4–6 sa, ayrı türetilmiş 20–30 sa `includes_tmax=false`; diğer ilaç `tmax=placeholder`, 1,5 sa (sağlıklı yetişkin) ve 3 sa (böbrek yetmezliği) ayrı; token'sız 401, yinelenen kimlik 422, doktor profili olmayan 403 |
+| GitHub CI | PR'da görülecek |
+
+**Gerçek veri envanteri** (sahibin bu oturumdaki onayıyla; mevcut yerel küme kapalıydı,
+geçici olarak yalnız `127.0.0.1:55434`'te sunucu düzeyinde `default_transaction_read_only=on`
+ile açıldı — önceden düzgün kapatılmıştı, kurtarma gerekmedi — `scripts/audit_m02_data.py`
+ile okundu, sonra düzgün kapatıldı. Ayrıştırıcı düzeltmelerinden sonra aynı prosedürle bir
+kez daha açılıp kapatıldı; kapanış kontrol noktaları 0 ve 3 tampon, WAL mesafesi her ikisinde
+0 kB (salt okunur okumada oluşabilen ipucu bitleri; veri değiştiren işlem yok). Seed, reset,
+migration, uygulama açılışı yok; kullanıcı/hasta/sohbet tabloları okunmadı; metin, ad,
+URL rapora/Git'e girmedi). Sayılar ayrıştırıcının son sürümüyle (`parser.py` SHA-256
+`70ce1569…`, `calc.py` `10693aca…`):
+
+| | `half_life` | `absorption` |
+|---|---|---|
+| Toplam ilaç | 17.430 | 17.430 |
+| Boş / yer tutucu / metin var | 14.959 / 10 / 2.461 | 14.910 / 1 / 2.519 |
+| Olası kesilme (tam 1000 karakter) | 3 (1000'i aşan 0) | — (Text) |
+| Alan durumu: `parsed` / `parsed_needs_review` / `unparsed_needs_review` / `no_statement_found` | 1.854 / 127 / 480 / — | 597 / 48 / 691 / 1.183 |
+| Yapılandırılan ölçüm (incelemeli) | 2.671 (372) | 802 Tmax (124) |
+| Ölçüm tabanı: değer sözcüğü / cümle sözcüğü / yalnız alan | 1.870 / 233 / 568 | 755 / 47 / — |
+| Anahtar sözcük geçen alan / bunlardan ölçümsüz | 1.614 / 201 | 843 / 198 |
+| Ölçüm referans durumu: eşleşen / belirteçsiz / kısmen / eşleşmeyen | 1.377 / 1.257 / 4 / 33 | 325 / 461 / 4 / 12 |
+| Koşul taşıyan ölçüm | 1.551 | 589 |
+| Çelişki grubundaki ölçüm | 218 | 83 |
+
+≈5× yarılanma ömrü: 1.928 hesaplandı, 743 hesaplanmadı (gerekçeler raporda; ör. çelişki
+218, çok fazlı belirsizlik 178, paralel liste 97, metabolit 87 + başka yerde metabolit 90,
+`respectively` 83, koşul atfı belirsiz 73, insan dışı/in vitro 45, fiziksel bozunma 23).
+Yalnız sayılan alanlar (ayrıştırılmadı): `metabolism` metin 2.408, `clearance` 1.666,
+`route_of_elimination` 2.072. Referans satırı olan ilaç: 4.525.
+
+Sayım yöntemi: her satır `parse_field` ile işlendi; "ayrıştırılabilir" = kuralların
+inceleme işareti olmadan değer ürettiği durum; anahtar sözcük sayısı kullanılabilir Tmax
+sayısı değildir. **Bu sayılar doğruluk ölçümü değildir.** Uygulayıcının yerel nokta
+kontrolü (uzman değil; sabit tohumlu 4 rastgele örnek × 60 ölçüm, her biri önceki
+düzeltmelerden sonra çekildi; metinler kayda alınmadı): yanıltıcı çıktı (yanlış ölçüm
+türü, başka değere taşınmış koşul veya uygulanamaz ≈5×) örnek 1'de 7, örnek 2'de 3,
+örnek 3'te 4, örnek 4'te 2 (Tmax 0/30; yarılanma ömrü: sözlükte olmayan hayvan türü ve
+radyoaktif "physical half-life"). Hepsi kurala bağlanıp regresyon testi eklendi; örnek 4
+düzeltmesinden sonra yeni örnek çekilmedi. Bu sayılar tek kişinin küçük örnekte
+yargısıdır; gerçek doğruluk oranı **bilinmiyor**. Sayısal değer/birim dönüşümü hatası
+örneklerde görülmedi; kalan bilinen zayıflık koşul atfıdır (sözlükte olmayan hasta
+grupları/türler, karmaşık karşılaştırma cümleleri) — kural belirsizlikte değeri işaretler
+veya incelemeye bırakır, bu da bazı doğru değerlerin inceleme gerektirmesine yol açar.
+
+**Açık işler / sonraki teslim önerisi:** (1) Uzmanın önceden sabitlediği referans ilaç
+kümesi; doğru / yanlış / yanıtsız / veri kapsamı ayrı sayılır, eksikler paydadan sessizce
+çıkarılmaz. (2) Kaynaklı yönlü zaman önerileri (`timing_advice`), Form A'daki ilaç–gıda
+örnekleri dahil; "arandı ama uygun kanıt yok" durumu ayrı tanımlanacak. (3) Onur'un
+`MetabolismTiming` ekranı (Halil ile yönlendirme). (4) Birleşik kabul.
+Ortak dosya talebi: yok. Geri alma: bu PR'ın revert'i yeterli (yalnız yeni modül,
+`main.py`'de 2 satır, README/STATUS bölümü); veri değişikliği yok, geri yükleme gerekmez.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

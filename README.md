@@ -126,6 +126,45 @@ Frontend (`frontend/` içinde): `npm test` ve `npm run build`.
 
 CI (`.github/workflows/ci.yml`): her PR'da backend için `uv lock --check`, `uv sync --locked`, gerçek paketlerin içe aktarılması, sentetik PostgreSQL servisiyle katı modda tüm testler; frontend için `npm ci`, `npm test`, `npm run build`. Ücretli sağlayıcı, API anahtarı ve gerçek DrugBank verisi gerekmez. Otomatik dağıtım/sağlık izleme workflow'u yoktur.
 
+## M-02 zaman verisi API'si (`POST /api/timing/compare`) — deneme
+
+2–10 DrugBank kimliği için saklanan metindeki Tmax (`absorption`) ve yarılanma ömrü (`half_life`) ifadelerini kaynak alıntısı, koşulları ve satır içi referansıyla; ayrıca ayrı bir "≈5 × yarılanma ömrü" nesnesiyle döndürür. Salt okunur; LLM çağırmaz; hasta/doz almaz. **Klinik öneri değildir**, zaman aralığı önerisi üretmez (`timing_advice.status = "not_evaluated"`), uzman kabulü yapılmamıştır. Tipli sözleşme ve tam örnekler: [backend/src/timing/API.md](backend/src/timing/API.md); ayrıştırma kuralları: [backend/src/timing/RULES.md](backend/src/timing/RULES.md).
+
+Ayrı, **sentetik** bir veritabanıyla 5 adımda deneme (uygulama veya gerçek DrugBank veritabanınızı kullanmayın; bu adımlar seçtiğiniz `_synth` veritabanını siler ve yeniden kurar). PowerShell, `backend/` içinde:
+
+1. Yerel PostgreSQL'de yeni, boş bir veritabanı oluşturun (adı `_synth` ile bitsin, ör. `medicallm_demo_synth`; `vector` ve `pg_trgm` uzantıları kurulu olsun).
+2. Sentetik hesapları ve ilaç satırlarını yükleyin:
+   ```powershell
+   $env:DEMO_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_demo_synth"
+   $env:MEDICALLM_SYNTHETIC_PG_CONFIRM = "medicallm_demo_synth"
+   uv run python -m tests.integration.synthetic_data $env:DEMO_URL
+   ```
+3. İki sentetik kayda **sentetik** zaman metni ekleyin (herhangi bir SQL istemcisiyle, yalnız bu veritabanında):
+   ```sql
+   UPDATE drugs SET name = '[SYNTHETIC] Timing Agent A',
+     absorption = '[SYNTHETIC] Peak plasma concentrations are reached within 0.5-1 hours after oral administration.',
+     half_life  = '[SYNTHETIC] The elimination half-life is 4-6 hours.' WHERE drug_id = 'DB00006';
+   UPDATE drugs SET name = '[SYNTHETIC] Timing Agent B', absorption = 'Not Available',
+     half_life  = '[SYNTHETIC] The half-life is 90 minutes in healthy adults and 3 hours in patients with renal impairment.'
+     WHERE drug_id = 'DB00316';
+   ```
+4. Backend'i bu veritabanıyla başlatın (ayrı terminal; `.env` içindeki `DO_POSTGRES_URL`'yi değiştirmeden yalnız bu süreç için):
+   ```powershell
+   $env:DO_POSTGRES_URL = $env:DEMO_URL; $env:DB_SSLMODE = "disable"
+   uv run python run.py
+   ```
+5. Sentetik hekim hesabıyla token alıp iki ilaçla deneyin (parola yalnız bu sentetik veritabanındaki test değeridir, `tests/integration/synthetic_data.py`):
+   ```powershell
+   $login = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"synthetic.doctor.a@synthetic-medicallm.org","password":"Synth-Pass-1!"}'
+   $r = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/timing/compare -ContentType application/json -Headers @{Authorization = "Bearer $($login.token)"} -Body '{"drug_ids":["DB00006","DB00316"]}'
+   $r.drugs | Select-Object requested_id, lookup_status, data_status
+   $r.drugs[0].measurements | Select-Object measure_type, @{n='hours';e={$_.hours}}, @{n='quote';e={$_.source.quote}}
+   $r.drugs[0].derived | Select-Object status, @{n='hours';e={$_.hours}}, includes_tmax
+   ```
+   Beklenen: `DB00006` için Tmax 0,5–1 sa (uygulamadan sonra), yarılanma ömrü 4–6 sa ve ayrı `derived` 20–30 sa (`includes_tmax = false`); `DB00316` için `data_status.tmax = placeholder`, 1,5 sa (sağlıklı yetişkin) ve 3 sa (böbrek yetmezliği) ayrı değerler. Doktor profili olmayan hesap 403, token'sız istek 401, aynı kimlik iki kez 422 alır.
+
+Gerçek veri envanteri (yalnız sayım, salt okunur; okumadan önce `transaction_read_only = on` doğrulanır, metin/URL yazmaz): `uv run python scripts/audit_m02_data.py --out m02_inventory.json` (bağlantı `M02_AUDIT_DB_URL` veya `DO_POSTGRES_URL`). Çıkış 0 = tamam, 1 = bağlanılamadı/salt okunur doğrulanamadı.
+
 ## Canlı yığın kontrolü (`backend/scripts/check_live_stack.py`)
 
 Kendi yapılandırmanızla (veritabanı + LLM sağlayıcısı) yığının gerçekten çalışıp çalışmadığını **hiçbir şey yazmadan** denetler. Veritabanına salt okunur bağlanır; sohbet kayıtları belleğe yazılır, veritabanına değil. LLM senaryoları gerçek sağlayıcı çağrısı yapar ve kotadan düşer.
