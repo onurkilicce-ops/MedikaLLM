@@ -43,6 +43,7 @@ M-05 önem etiketleme yöntemi) eksik olarak açıktır.
 | R1-O1 Tekrarlanabilir taban + mevcut API onarımı (C2, C3, CI) | Onur Kılıç (entegrasyon sorumlusu) | `feat/onur/r1-baseline` | README.md, STATUS.md, .github/workflows/ci.yml, .env.example, .gitignore, compose.local.yml, backend/pyproject.toml, backend/uv.lock, (zorunluysa) run.py/config.py/main.py/scripts/init_tables.py, auth/router.py + service.py + dependencies.py, drugs/router.py, users/service.py (yalnız ortak erişim kontrolü), tests/conftest.py, tests/integration/conftest.py, synthetic_data.py, test_api_shape.py, test_r1_auth_access.py, frontend/package.json + package-lock.json | agent/, session/, conversations/, frontend/src/, sql_models.py/migration |
 | R1-K1 Yanıt kanıtı C1 üretimi | Kadir Güllükaya | (Kadir'in görev dalı) | agent/, session/, conversations/ ve ilgili kanıt testleri | — |
 | R1-H1 C1 gösterimi + etkin hekim analizi yanıtı | Halil Samet Şen | (Halil'in görev dalı) | frontend/src/ (arayüz, API istemcisi, çeviri, yönlendirme, stil) | — |
+| R1-O2 Kontrol komutunun doğru sonuç vermesi + sınırlı canlı doğrulama (R1-O1 sonrası yeni, bağımsız iş) | Onur Kılıç | `fix/onur/r1-live-check` | backend/scripts/check_live_stack.py, backend/tests/test_check_live_stack.py, README.md (yalnız bu komut), STATUS.md (yalnız R1-O2) | uygulama modülleri, db/migration, ortak test fixture'ları, bağımlılık/CI/Docker/.env |
 
 Okunabilir ama bu tur kimsenin değişiklik alanı olmayan: `drugs/service.py`,
 `drugs/models.py`, `pubmed/`. `backend/src/db/sql_models.py` ve şema/migration bu
@@ -172,6 +173,49 @@ yeni klasör, `f549e59…` üzerinden `feat/onur/r1-baseline`.
 - Kadir: C1 üretimi (R1-K1). `citations.py` yalnız atıf numarası ve atıfsız satır sayar; kaynakta olmayan iddiayı yakalamaz (denetim bulgusu).
 - Form A'nın imzalı sürümü ve güncel kapsam eki yok.
 - Kapsam dışı kalanlar: lisans aktarımı, uzman değerlendirmesi, M-01–M-06 tam özellikleri, ücretli plan, dağıtım, hasta portalı.
+
+### R1-O2 — Kontrol komutunun doğru sonuç vermesi (teslim; teknik denetim bekliyor)
+
+Başlangıç: entegrasyon `f4ab516fc23d3f4fbdb201029bd06a94f28d0616`; dal `fix/onur/r1-live-check`.
+M-06'nın çalışma altyapısını destekler; yeni tıbbi özellik veya klinik kabul değildir.
+Uygulama kodu, API (C1–C3), şema, bağımlılık ve CI değişmedi.
+
+Sorun (denetçinin sentetik koşumu; betik `f549e59` ile `f4ab516`'da aynı, blob `f71f593`):
+`--skip-llm` + DB hatası, `--only does_not_exist`, ajan kurulum hatası ve `normal_chat` için
+terminal `error` olayı — dördü de **çıkış kodu 0** veriyordu. R1-O1 kaynaklı değil.
+
+Yeni davranış (`scripts/check_live_stack.py`, rapor `report_version: 2`; sözleşme README "Canlı yığın kontrolü"):
+- `--only` bağlantıdan önce doğrulanır; boş/boş öğe/bilinmeyen ad → çıkış 2, DB ve sağlayıcıya dokunulmaz.
+- DB: önce `transaction_read_only = on` doğrulanır, değilse başka hiçbir şey okunmaz; tablo başına `exists`/`count`;
+  gerçek `0` ile okunamayan `null` ayrı; `drug_data` = `present`/`empty`/`partial`/`unknown`. DB ön koşulu
+  başarısızsa ajan kurulmaz, sağlayıcı çağrılmaz.
+- LLM: `skipped_by_flag` (bilinçli), `not_run_missing_key` (başarısızlık), `not_run_prerequisite_failed`, `ok`/`failed`.
+  Senaryo yalnız terminal `done` + boş olmayan yanıt + kayıtlı sağlayıcı çağrısı (`llm_usage.calls ≥ 1`) ile başarılı;
+  ilk başarısızlıktan sonra kalan senaryolar çalıştırılmaz.
+- `overall.exit_code` = süreç çıkış kodu; `failures`, `llm_provider_verified`, `drugbank_data_present`.
+  Hatalar yalnız istisna türüyle; rapor şifre/anahtar/URL içermez. Mevcut bayraklar korundu.
+
+Kontroller (2026-11-24, yerel; Windows 11, Python 3.12.12, uv 0.10.7):
+
+| Kontrol | Sonuç |
+|---|---|
+| `tests/test_check_live_stack.py` (çevrimdışı, sentetik sahte DB/ajan/oturum; `monkeypatch` ile, sızıntı yok) | **37 geçti** |
+| Aynı testler `git archive f4ab516` geçici kopyasındaki eski betiğe karşı | **37 başarısız**; dört denetim kusuru, boş `--only`, salt okunur kapalı ve eksik anahtar testleri `assert 0 == 1/2` (eski betik 0 döndürüyor) |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`, bu çalışmaya ait sentetik PG) | **342 geçti, 0 atlandı** (305 + 37); 16 test modülü toplandı; `uv lock --check` ✔ |
+| Frontend `npm ci`, `npm test`, `npm run build` | 53 test ✔, derleme ✔ |
+| GitHub CI (yeni commit) | PR'da görülecek |
+
+Sınırlı canlı kontrol (sentetik sonuçlardan ayrı):
+
+| Kontrol | Sonuç |
+|---|---|
+| **Gerçek Groq**, `--only normal_chat` (hastasız, tıbbi olmayan selam), mevcut yetkili yerel yapılandırma yalnız süreç ortamına aktarıldı (anahtar yazdırılmadı, kalıcı ayar değişmedi) | **Çıkış 0.** Terminal `done`; `llm_usage`: 1 çağrı, 2.393 giriş / 69 çıkış token (sağlayıcı bildirimi); 1,1 sn; yanıt 184 karakter; sağlayıcı oran sınırı başlıkları alındı (`provider_limits_after`). Sağlayıcı `api.groq.com`, model `openai/gpt-oss-20b` (değiştirilmedi). Bu koşumda DB, bu çalışma için oluşturulmuş **boş** sentetik geliştirme DB'siydi (`drug_data: empty`, salt okunur `on`) |
+| **Gerçek DrugBank DB** (`--skip-llm`) | **Yapılmadı.** Mevcut yerel veritabanı çalışmıyor; veri klasöründe eski bir `postmaster.pid` var (süreç yok, düzensiz kapanma). Başlatmak gerçek veri klasöründe kurtarma yazımı demek; sahibin onayı olmadan başlatılmadı |
+| Dokuz senaryonun tamamı, ilaç soruları, hasta analizi | Kapsam dışı / çalıştırılmadı |
+
+Bu canlı sonuç yalnız sınırlı bir sağlayıcı yanıtını doğrular; ilaç sorularının kaynak doğruluğunu, hasta
+analizini, C1 birleşik akışını (Kadir/Halil) veya M-01–M-06 oranlarını kanıtlamaz. Geri alma: bu PR'ın ayrı
+revert PR'ı yeterli; uygulama/veri geri yükleme gerekmez.
 
 ### 7. Denetim R1-O1-D1 (PR #2, denetlenen `6350d0de6dd90f2cef4f999b925399e173bce4d6`)
 
