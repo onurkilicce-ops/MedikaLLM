@@ -148,11 +148,15 @@ Ayrı, **sentetik** bir veritabanıyla 5 adımda deneme (uygulama veya gerçek D
      half_life  = '[SYNTHETIC] The half-life is 90 minutes in healthy adults and 3 hours in patients with renal impairment.'
      WHERE drug_id = 'DB00316';
    ```
-4. Backend'i bu veritabanıyla başlatın (ayrı terminal; `.env` içindeki `DO_POSTGRES_URL`'yi değiştirmeden yalnız bu süreç için):
+4. Backend'i **yeni bir terminalde**, `backend/` içinde başlatın. Bu blok kendi başına yeterlidir: hedefi bu terminalde açıkça yazar ve uygulamayı ancak hedef doğrulanırsa açar. `.env` dosyasını değiştirmez. Değişken unutulursa uygulama `.env`/`POSTGRES_URL`'deki veritabanına geri dönmez; doğrulayıcı durur. `KULLANICI`/`PORT` değerlerini 2. adımdakiyle aynı yazın.
    ```powershell
-   $env:DO_POSTGRES_URL = $env:DEMO_URL; $env:DB_SSLMODE = "disable"
-   uv run python run.py
+   $env:DO_POSTGRES_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_demo_synth"
+   $env:M02_DEMO_CONFIRM = "medicallm_demo_synth"
+   $env:DB_SSLMODE = "disable"
+   uv run python -m src.timing.demo_guard
+   if ($LASTEXITCODE -eq 0) { uv run python run.py } else { Write-Host "Durdu: demo hedefi dogrulanmadi; uygulama baslatilmadi." }
    ```
+   `src.timing.demo_guard` yalnız bu terminalin ortam değişkenlerini okur, `.env`'yi okumaz. Şunları ister: `DO_POSTGRES_URL` tanımlı olmalı; yerel (`127.0.0.1`/`localhost`) ve sorgu seçeneksiz bir PostgreSQL adresi olmalı; veritabanı adı `_synth` ile bitmeli ve `M02_DEMO_CONFIRM` ile aynı olmalı. Ardından salt okunur bağlanıp sunucunun bildirdiği veritabanını ve sentetik olmayan kullanıcı bulunmadığını doğrular. Aksi halde çıkış kodu 2 olur ve hiçbir şey başlatılmaz.
 5. Sentetik hekim hesabıyla token alıp iki ilaçla deneyin (parola yalnız bu sentetik veritabanındaki test değeridir, `tests/integration/synthetic_data.py`):
    ```powershell
    $login = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"synthetic.doctor.a@synthetic-medicallm.org","password":"Synth-Pass-1!"}'
@@ -160,6 +164,7 @@ Ayrı, **sentetik** bir veritabanıyla 5 adımda deneme (uygulama veya gerçek D
    $r.drugs | Select-Object requested_id, lookup_status, data_status
    $r.drugs[0].measurements | Select-Object measure_type, @{n='hours';e={$_.hours}}, @{n='quote';e={$_.source.quote}}
    $r.drugs[0].derived | Select-Object status, @{n='hours';e={$_.hours}}, includes_tmax
+   $r.drugs[0].measurements | Select-Object @{n='ref';e={$_.source.reference_scope}}, @{n='stored_ref';e={$_.source.stored_reference_attributed}}
    ```
    Beklenen: `DB00006` için Tmax 0,5–1 sa (uygulamadan sonra), yarılanma ömrü 4–6 sa ve ayrı `derived` 20–30 sa (`includes_tmax = false`); `DB00316` için `data_status.tmax = placeholder`, 1,5 sa (sağlıklı yetişkin) ve 3 sa (böbrek yetmezliği) ayrı değerler. Doktor profili olmayan hesap 403, token'sız istek 401, aynı kimlik iki kez 422 alır.
 

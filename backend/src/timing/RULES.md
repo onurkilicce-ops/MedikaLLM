@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/1`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/2`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -177,11 +177,14 @@ ilacın** `drug_references.ref_id` değeriyle birebir eşleşirse bağlanır.
 Durumlar: `matched` (hepsi), `partially_matched`, `unmatched`,
 `no_inline_reference`. Genel referanslar belirteç olmadan **hiçbir** ölçüme
 bağlanmaz. Kapsam (`reference_scope`): değerin kendi penceresinde yazılmış
-belirteç → `value_window`; cümle sonundaki belirteç ve cümlede tek değer →
-`sentence_single_value`; cümle sonundaki belirteç ve birden çok değer →
-`sentence_shared` (hangi değere ait olduğu belirlenemez). 
-`primary_reference_verified` yalnız `matched` **ve** kapsam `value_window`
-veya `sentence_single_value` ise `true`.
+belirteç → `value_window`; cümle sonundaki belirteç, değer son `;` cümleciğinde,
+cümlede tek süre ve değerden sonra başka iddia yok → `sentence_single_value`; cümlede
+birden çok süre veya değerden sonra başka iddia → `sentence_shared`; belirteç başka
+bir `;` cümleciğini kapatıyor → `sentence_other_clause` (bağlanmaz,
+`nearby_reference_tokens`). `stored_reference_attributed` (sürüm 1'deki
+`primary_reference_verified`) yalnız `matched` **ve** kapsam `value_window` veya
+`sentence_single_value` ise `true`; bu saklı bir eşlemedir, dış kaynağın açılıp
+değeri desteklediğinin doğrulanması değildir (bkz. 8b).
 
 ## 8. İnceleme ve çelişki
 
@@ -201,6 +204,87 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 `unparsed_needs_review` ölçüm yok, inceleme kalemi var (veya yarılanma ömrü
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
+
+## 8b. Sürüm 2 — bağımsız denetim (M02-O1-D1) kuralları
+
+Hangi yapıda temiz değer verilir, nerede çekimser kalınır:
+
+- **Olumsuzlama (D1).** Yalnız değerin **kendi cümleciği** sayılır: değerden önceki
+  son `,`, `;` veya bağlaç (`and`, `but`, `as`, `since`, `because`, `which`, `that`,
+  `when`, `although` …) sonrasından değere kadar. Orada `not`, `never`, `no`,
+  `cannot` veya `n't` varsa → değer üretilmez, `negated_value`. İstisnalar: sınır
+  ifadeleri (`not/no less|more|longer|shorter|greater|fewer than`, `does not
+  exceed`, `not above/over` = üst sınır; `not below/under` = alt sınır) ve hemen
+  ardından (≤30 karakter) bir koşul terimi gelen olumsuzlama (`patients with no
+  hepatic impairment` → olumsuz koşul). Böylece `No dose adjustment is required as
+  the half-life is 4 hours` temiz bir değerdir.
+  `undetermined_statement` (değer üretilmez): kendi cümlecikte, değerden hemen sonraki
+  yüklemde (`… 4 hours has not been established`) ya da değere bağlanan `which/that`
+  cümleciğinde (`…, which was later refuted`) `not/n't (be/been/yet/well-/reliably)
+  established|determined|known|reported|measured|confirmed|observed|demonstrated|
+  seen|verified|proven|shown|validated…`, `yet to be …`, `unknown`, `unclear`,
+  `unproven`, `refuted` geçmesi. Değerden sonraki `;` cümleciği veya **sonraki
+  cümle** `This/These/It/Such/The value …` ile başlayıp aynı ifadeyi içeriyorsa
+  değer kalır, `undetermined_statement` ile işaretlenir. Başka öznenin cümleciği
+  (`… 5 hours, and the relevance of this … is unclear`) değeri etkilemez.
+  Kanıtsız tahmin (`may/might/could be`, `possibly`, `presumably`, `thought/believed/
+  assumed/suggested to be`) → değer kalır, `hedged_value` (≈5× yok).
+  Koşul teriminin önünde `without`, `lacking`, `no`, `not in/with/on/receiving/
+  undergoing`, `who do not have`, `except`, `excluding`, `other than`, `free of/from`,
+  `absence of`, `unless` varsa terim metni olumsuzlamayla birlikte tutulur ve değer
+  `negated_condition` alır (≈5× yok). `nonsmokers`/`non-smokers` bir nüfus terimidir.
+- **Değer dışı bağlam (D2).** Alanın **değer içermeyen** bir cümlesi yalnız açıkça
+  kapsam bildiriyorsa sayılır: `these/this/such data|values|measurements|results|…`,
+  `data … were obtained/derived/measured/from`, `apply to`, `refer to`, `the study
+  enrolled/included`, `studies were done/conducted`, ya da başlık satırı (`Dogs:`,
+  ≤4 sözcüklük noktasız satır). Böyle bir cümlede formülasyon/nüfus/`other` koşulu
+  ya da tanınmayan bir grup/form sözcüğü (`patients`, `formulation`, `products` …)
+  varsa ve değerin kendi penceresinde o kategoride koşul yoksa →
+  `field_context_unattributed`. Sıradan cümleler (`It is available as tablets.`,
+  `No dose adjustment is needed in the elderly.`, `In vitro studies indicate …`)
+  kapsam bildirmez. İnsan dışı/in vitro sözcüğü (kelime olarak; `administration`
+  içindeki `rat` değil) böyle bir kapsam cümlesinde ya da değer içeren bir cümlede
+  geçiyor ve değerin kendi tür terimi (`humans` dahil) yoksa →
+  `non_human_context_in_field`. Sözlük: rats, mice, murine, rodents, dogs, beagles,
+  canines, monkeys, macaques, primates, rabbits, pigs, animals, in vitro, ex vivo,
+  preclinical/nonclinical, hepatocytes, microsomes, cell lines … Sözlükte olmayan
+  grup `in/among <1–2 sözcük> patients|subjects|…` biçiminde yakalanır.
+- **Özne (D3).** Karşılaştırma ifadesi (`unlike`, `like`, `similar to`, `compared
+  with/to`, `in contrast to`, `as with`, `relative to`, `than that of`) değerden önce
+  gelir ve değer karşılaştırılanın ilgi cümleciğindeyse (`which/who/whose/with` veya
+  parantez) → `subject_unresolved_comparison` (değer üretilmez); değerden önce gelen
+  diğer karşılaştırma yalnız `comparison_in_clause` ile işaretler; değerden sonra
+  gelen karşılaştırma (`… 4 hours, which is shorter than that of other drugs`)
+  etkilemez. Kayıt adı verilirse büyük harfle başlayan ad şu kalıplarda özne
+  sayılır: `half-life/Tmax of|for X`, `X's half-life`, `X has/exhibits/shows a
+  half-life`, cümle başında `For/In X,`, `X:` başlığı, `Half-life (X)`, değerden sonra
+  `for/of/with X`. Ad kayıt adıyla aynı (veya kayıt adı + boşluklu ek, ör. tuz)
+  değilse → `subject_not_record_drug` (değer üretilmez). Ardından grup sözcüğü gelen
+  ad (`Japanese subjects`), koşul/ölçüm/tür sözcükleri özne değildir; metabolit kodu
+  (`M1`) değer kalır, `subject_code_unresolved`. Marka adı kayıt adından ayırt
+  edilemez → incelemeye düşer (bilinen sınırlama). Küçük harfle yazılmış başka ilaç
+  adları yakalanmaz; genel ilaç adı tanıma yoktur.
+- **Referans kapsamı (D4).** Cümle sonu belirteci yalnız son üst düzey `;` cümleciğine
+  aittir. Değer başka cümlecikteyse belirteç bağlanmaz (`sentence_other_clause`,
+  `nearby_reference_tokens`). Cümlede başka süre ya da değerden sonra (belirtece kadar)
+  başka içerik sözcüğü varsa `sentence_shared`. `stored_reference_attributed` yalnız
+  `value_window`/`sentence_single_value` ve tam saklı eşleşmede `true`; bu bir saklı
+  eşlemedir, dış kaynağın doğrulanması değildir.
+- **Yayılım (D5).** `±` yayılımı saate kendi birimiyle çevrilir; sonlu değilse
+  `invalid_value`, sıfırdan büyükken 6 ondalıkta 0'a yuvarlanıyorsa
+  `value_below_precision` (değer üretilmez). ≈5× nesnesi yayılımı da ×5 taşır
+  (`statistic: "not_stated"`; SD/aralık/güven aralığı diye yorumlanmaz, min–max'a
+  çevrilmez); sonlu değilse `invalid_dispersion`. Değerin hemen önünde `±`, `+/-`,
+  `∓`, `plus or minus`, tek `+`, `SD`, `SEM`, `CI`, `IQR`, `standard deviation of` …
+  ya da `4 to` / `4 ±` gibi yarım kalmış aralık varsa → değer üretilmez
+  (`dispersion_or_range_form_not_structured`). Değerden sonra yazılan yayılım
+  (`4 hours (± 1)`, `4 hours, with a standard deviation of 1 hour`, `(95% CI …)`)
+  okunmaz; değer kalır, `dispersion_not_structured` (≈5× yok).
+- **Demo hedefi (D6).** `src.timing.demo_guard`: yalnız süreç ortamı; `DO_POSTGRES_URL`
+  tanımlı, `postgresql`, sorgusuz, loopback, ad `_synth` ve `M02_DEMO_CONFIRM` ile
+  aynı; `PGHOSTADDR`/`PGSERVICE`/`PGSERVICEFILE` ne süreçte ne `run.py`'nin yüklediği
+  `.env` dosyalarında tanımlı; salt okunur bağlantıda `current_database()` aynı ve
+  sentetik olmayan kullanıcı yok. Aksi halde çıkış 2.
 
 ## 8a. İkinci bağımsız inceleme turundan sonra eklenen genel kurallar
 
@@ -270,8 +354,9 @@ değil; alanda çok fazlı anlatım varken bu ölçümün fazı belirtilmemiş d
 alanda doğrusal olmayan kinetik ifadesi yok; matris `intracellular/CSF/
 tissue/red blood cells/bone` değil; `other` insan dışı tür veya in vitro
 değil. Hesap: nokta ×5, aralıkta alt ×5 ve üst ×5 **ayrı**,
-tek yönlü sınır ×5 (yön korunur); `±` değerinde yalnız merkez ×5 (yayılım
-taşınmaz). Tmax eklenmez. Aksi halde `not_computed` + gerekçe kodları:
+tek yönlü sınır ×5 (yön korunur); `±` değerinde merkez ×5, yayılım da ayrı
+`dispersion` alanında ×5 taşınır (`statistic: "not_stated"`; aralığa çevrilmez,
+bkz. 8b). Tmax eklenmez. Aksi halde `not_computed` + gerekçe kodları:
 `measurement_requires_review` (+ ölçümün kendi gerekçeleri),
 `metabolite_not_parent`, `analyte_ambiguous_metabolite_mentioned`,
 `non_elimination_phase`, `phase_ambiguous_multiphasic`,

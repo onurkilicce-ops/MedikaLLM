@@ -17,7 +17,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-SCHEMA_VERSION = "m02-timing-compare/1"
+SCHEMA_VERSION = "m02-timing-compare/2"
 
 # Technical limit of this delivery (not a clinical rule of Form A).
 MIN_DRUGS = 2
@@ -29,7 +29,7 @@ SourceField = Literal["half_life", "absorption"]
 ValueKind = Literal["point", "range", "upper_bound", "lower_bound"]
 TimeReference = Literal["after_administration", "not_stated", "not_applicable_duration"]
 ReferenceStatus = Literal["matched", "partially_matched", "unmatched", "no_inline_reference"]
-ReferenceScope = Literal["value_window", "sentence_single_value", "sentence_shared", "none"]
+ReferenceScope = Literal["value_window", "sentence_single_value", "sentence_shared", "sentence_other_clause", "none"]
 FieldStatus = Literal[
     "empty",                # NULL / whitespace only
     "placeholder",          # e.g. "Not Available"
@@ -100,17 +100,24 @@ class SourceExcerpt(_Out):
     value_end: int
     truncated: bool = Field(False, description="The quote itself is never shortened (always false)")
     stored_text_possibly_truncated: bool
-    inline_reference_tokens: List[str]
+    inline_reference_tokens: List[str] = Field(
+        ..., description="Tokens attributed to this value (see reference_scope); [] when none")
+    nearby_reference_tokens: List[str] = Field(
+        ..., description="Other tokens in the same sentence that are NOT attributed to this value")
     references: List[ReferenceLink]
     unmatched_reference_tokens: List[str]
     reference_status: ReferenceStatus
     reference_scope: ReferenceScope = Field(
         ..., description="value_window: token written inside this value's own clause; sentence_single_value: "
-                         "token at the end of a sentence with one value; sentence_shared: token at the end of a "
-                         "sentence with several values (cannot be attributed to one of them); none: no token")
-    primary_reference_verified: bool = Field(
-        ..., description="True only when every token matched a reference row of this drug AND the token "
-                         "belongs to this value (scope value_window or sentence_single_value)"
+                         "token at the end of a sentence that states only this value; sentence_shared: token at "
+                         "the end of a sentence that also states other values or claims (not exclusive to this "
+                         "value); sentence_other_clause: token closes another ';' clause and is not attributed "
+                         "(see nearby_reference_tokens); none: no token")
+    stored_reference_attributed: bool = Field(
+        ..., description="True only when every attributed token matched a stored drug_references row of this "
+                         "drug AND the token belongs to this value alone (scope value_window or "
+                         "sentence_single_value). This is a stored mapping, NOT a check that the external "
+                         "source was opened or that it supports the value."
     )
 
 
@@ -174,6 +181,17 @@ class TimingMeasurement(_Out):
     parser_version: str
 
 
+class DerivedDispersion(_Out):
+    """The source '±' spread carried through the same x5 scaling. The kind of
+    statistic (SD, SEM, range half-width, CI) is not stated in the source and
+    is not inferred; the derived value is NOT turned into a min-max range."""
+
+    kind: Literal["plus_minus"] = "plus_minus"
+    statistic: Literal["not_stated"] = "not_stated"
+    value_hours: float
+    source_value_hours: float
+
+
 class DerivedDuration(_Out):
     """About five half-lives, computed separately from (never merged into)
     the source measurement. Tmax is never added."""
@@ -184,6 +202,8 @@ class DerivedDuration(_Out):
     status: Literal["computed", "not_computed"]
     multiplier: int = 5
     hours: Optional[Quantity] = None
+    dispersion: Optional[DerivedDispersion] = Field(
+        None, description="Only when the source value has a '±' spread; null otherwise")
     not_computed_reasons: List[str]
     includes_tmax: bool = False
     assumptions: List[str]

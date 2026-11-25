@@ -111,8 +111,8 @@ def test_two_drugs_sourced_values_order_and_separate_derived(m02):
     r = client.post(URL, json={"drug_ids": [B, A]}, headers=_auth())
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["schema_version"] == "m02-timing-compare/1"
-    assert body["parser_version"] == "m02-text-parser/1"
+    assert body["schema_version"] == "m02-timing-compare/2"
+    assert body["parser_version"] == "m02-text-parser/2"
     assert [d["requested_id"] for d in body["drugs"]] == [B, A]
     assert [d["position"] for d in body["drugs"]] == [0, 1]
     assert body["timing_advice"] == {
@@ -143,7 +143,7 @@ def test_two_drugs_sourced_values_order_and_separate_derived(m02):
     assert stored_abs[t["source"]["quote_start"]:t["source"]["quote_end"]] == t["source"]["quote"]
     assert t["source"]["reference_status"] == "matched"
     assert t["source"]["reference_scope"] == "sentence_single_value"
-    assert t["source"]["primary_reference_verified"] is True
+    assert t["source"]["stored_reference_attributed"] is True
     assert [ref["ref_id"] for ref in t["source"]["references"]] == ["A900001"]
     assert t["source"]["references"][0]["citation"] == f"{TAG} Synthetic absorption study."
 
@@ -183,7 +183,7 @@ def test_two_drugs_sourced_values_order_and_separate_derived(m02):
     assert halves[0]["source"]["reference_status"] == "unmatched"
     assert halves[0]["source"]["unmatched_reference_tokens"] == ["L900003"]
     assert halves[0]["source"]["reference_scope"] == "sentence_shared"  # one token, two values
-    assert halves[0]["source"]["primary_reference_verified"] is False
+    assert halves[0]["source"]["stored_reference_attributed"] is False
     assert [x["hours"] for x in b["derived"]] == [
         {"kind": "point", "value": 7.5, "lower": None, "upper": None, "inclusive": None},
         {"kind": "point", "value": 15.0, "lower": None, "upper": None, "inclusive": None},
@@ -465,7 +465,7 @@ def test_openapi_documents_the_contract(m02):
     assert {"status", "advice", "note"} <= set(schemas["TimingAdvice"]["required"])
     assert {"includes_tmax", "hours", "not_computed_reasons", "assumptions"} <= set(
         schemas["DerivedDuration"]["required"])
-    assert {"reference_scope", "primary_reference_verified", "references"} <= set(
+    assert {"reference_scope", "stored_reference_attributed", "references"} <= set(
         schemas["SourceExcerpt"]["required"])
     assert {"kind", "value", "lower", "upper", "inclusive"} <= set(schemas["Quantity"]["required"])
     assert {"schema_version", "drugs", "timing_advice", "limitations"} <= set(

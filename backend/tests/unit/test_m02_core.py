@@ -100,7 +100,8 @@ def test_formulation_population_phase_and_metabolite_are_not_merged():
     fp = parse_field("half_life", S + "In healthy adults the half-life of the tablet is 4 hours, whereas in "
                      "elderly patients given the extended-release capsule it is 9 hours.")
     a, b = fp.values
-    assert a.conditions["population"] == ["healthy adults"] and "elderly" in b.conditions["population"]
+    # parser/2 keeps the full group phrase ('in elderly patients' -> 'elderly patients'; was 'elderly')
+    assert a.conditions["population"] == ["healthy adults"] and b.conditions["population"] == ["elderly patients"]
     assert "tablet" in a.conditions["formulation"] and "extended-release" in b.conditions["formulation"]
     assert "elderly" not in a.conditions["population"] and "healthy adults" not in b.conditions["population"]
     assert a.conflict_group is None and b.conflict_group is None

@@ -11,6 +11,7 @@ from . import calc, repository
 from .models import (
     Conditions,
     DataStatus,
+    DerivedDispersion,
     DerivedDuration,
     Dispersion,
     DrugIdentity,
@@ -42,7 +43,8 @@ RESPONSE_LIMITATIONS = [
                        "that length is flagged as possibly truncated and is not used for derived values."),
     Limitation(code="general_references_not_linked",
                message="A drug's general reference list is not treated as evidence for a value. A reference is "
-                       "linked only when an inline token in the quoted sentence matches that drug's reference id."),
+                       "linked only when an inline token attributed to the value matches that drug's reference id. "
+                       "A match is a stored mapping; the external source was not opened or checked."),
     Limitation(code="five_half_lives_is_an_approximation",
                message="'approx_five_half_lives' assumes one constant half-life (first-order decline). It must not "
                        "be read as complete elimination, as the end of the effect or as clearance to give another "
@@ -97,11 +99,12 @@ def _measurements(drug_id: str, fp: FieldParse, refs: List[repository.ReferenceR
                 truncated=False,
                 stored_text_possibly_truncated=fp.possibly_truncated,
                 inline_reference_tokens=list(v.reference_tokens),
+                nearby_reference_tokens=list(v.nearby_reference_tokens),
                 references=links,
                 unmatched_reference_tokens=unmatched,
                 reference_status=status,
                 reference_scope=v.reference_scope,
-                primary_reference_verified=status == "matched"
+                stored_reference_attributed=status == "matched"
                 and v.reference_scope in ("value_window", "sentence_single_value"),
             ),
             original=OriginalQuantity(kind=v.original.kind, value=v.original.value, lower=v.original.lower,
@@ -139,6 +142,7 @@ def _derived(fp: FieldParse, measurements: List[TimingMeasurement]) -> List[Deri
             status=d["status"],
             multiplier=calc.MULTIPLIER,
             hours=_q(d["hours"]) if d["hours"] is not None else None,
+            dispersion=DerivedDispersion(**d["dispersion"]) if d.get("dispersion") else None,
             not_computed_reasons=d["not_computed_reasons"],
             includes_tmax=False,
             assumptions=list(calc.ASSUMPTIONS),
@@ -179,7 +183,7 @@ def _drug_limitations(half: FieldParse, absorption: FieldParse, ms: List[TimingM
         out.append("no_tmax_statement_in_absorption_text")
     if any(m.conflict_group for m in ms):
         out.append("conflicting_values_kept_unresolved")
-    if any(not m.source.primary_reference_verified for m in ms):
+    if any(not m.source.stored_reference_attributed for m in ms):
         out.append("some_values_without_verified_inline_reference")
     if half.status in ("unparsed_needs_review", "parsed_needs_review") or \
             absorption.status in ("unparsed_needs_review", "parsed_needs_review"):
@@ -200,8 +204,10 @@ def compare(drug_ids: Sequence[str]) -> TimingCompareResponse:
                 limitations=["drug_id_not_in_database"],
             ))
             continue
-        half = parse_field("half_life", row.half_life, stored_max_length=repository.HALF_LIFE_STORED_MAX)
-        absorption = parse_field("absorption", row.absorption)
+        names = [row.name]
+        half = parse_field("half_life", row.half_life, stored_max_length=repository.HALF_LIFE_STORED_MAX,
+                           subject_names=names)
+        absorption = parse_field("absorption", row.absorption, subject_names=names)
         drug_refs = refs.get(row.pk, [])
         abs_ms = _measurements(row.drug_id, absorption, drug_refs)
         half_ms = _measurements(row.drug_id, half, drug_refs)

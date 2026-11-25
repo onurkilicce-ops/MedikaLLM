@@ -296,9 +296,11 @@ bu çalışma için açılan geçici küme `127.0.0.1:55440`, `medicallm_m02_syn
 | Katı tam paket (`MEDICALLM_STRICT_TESTS=1`), `uv lock --check` | **612 geçti, 0 atlandı** (342 + 270 M-02); kilit temiz |
 | Frontend `npm ci`, `npm test`, `npm run build` (değiştirilmedi) | 5 dosya, 53 test geçti; derleme başarılı (yalnız mevcut npm 11 `allow-scripts` uyarısı; kilit dosyası değişmedi) |
 | README'deki 5 adım, ayrı `medicallm_demo_synth` ile birebir | Uygulama açıldı (`/health` db ok); iki ilaç: Tmax 0,5–1 sa (uygulamadan sonra), yarılanma ömrü 4–6 sa, ayrı türetilmiş 20–30 sa `includes_tmax=false`; diğer ilaç `tmax=placeholder`, 1,5 sa (sağlıklı yetişkin) ve 3 sa (böbrek yetmezliği) ayrı; token'sız 401, yinelenen kimlik 422, doktor profili olmayan 403 |
-| GitHub CI | PR'da görülecek |
+| GitHub CI (`6776fac`) | Run 45452132496, geçici PR birleşimi `469b43f…` (ebeveynler `c86dcc1` + `6776fac`, ağaç = teslim head ağacı `a5ee95b…`): katı backend **612 geçti**; frontend 53 test + derleme ✔ (denetçi kaydı) |
 
-**Gerçek veri envanteri** (sahibin bu oturumdaki onayıyla; mevcut yerel küme kapalıydı,
+**Gerçek veri envanteri — tarihsel, `m02-text-parser/1`** (bu sayılar `6776fac`'teki
+ayrıştırıcıya aittir; M02-O1-D1'deki `m02-text-parser/2` için gerçek küme **yeniden
+sayılmadı**, aşağıdaki sayılar yeni sürüm için doğrulanmış değildir). (Sahibin onayıyla; mevcut yerel küme kapalıydı,
 geçici olarak yalnız `127.0.0.1:55434`'te sunucu düzeyinde `default_transaction_read_only=on`
 ile açıldı — önceden düzgün kapatılmıştı, kurtarma gerekmedi — `scripts/audit_m02_data.py`
 ile okundu, sonra düzgün kapatıldı. Ayrıştırıcı düzeltmelerinden sonra aynı prosedürle bir
@@ -348,6 +350,62 @@ kümesi; doğru / yanlış / yanıtsız / veri kapsamı ayrı sayılır, eksikle
 `MetabolismTiming` ekranı (Halil ile yönlendirme). (4) Birleşik kabul.
 Ortak dosya talebi: yok. Geri alma: bu PR'ın revert'i yeterli (yalnız yeni modül,
 `main.py`'de 2 satır, README/STATUS bölümü); veri değişikliği yok, geri yükleme gerekmez.
+
+#### M02-O1-D1 — Bağımsız denetim düzeltmeleri (Astra, denetlenen `6776fac`; düzeltme teslimi, yeniden denetim bekliyor)
+
+Denetçi kararı: düzeltme gerekli (D1–D6). Hepsi önce `6776fac`'te yeniden üretildi
+(HTTP → gerçek router/yetki/servis/yanıt; yalnız DB okuma sınırı sentetik satırlarla
+değiştirildi; D6 sahte yapılandırmayla yeni PowerShell sürecinde), sonra düzeltildi.
+
+| Bulgu | `6776fac` (gözlenen) | Şimdi | Değişen |
+|---|---|---|---|
+| D1 olumsuzlama | `is not 4 hours`, `has not been established`, `Tmax was not 2 hours` → temiz değer (≈5× 20 sa); `without renal impairment` → `renal impairment` | Olumsuz/belirlenmemiş değer ölçüm değil (`negated_value`, `undetermined_statement`); koşul metni olumsuzlamayla korunur (`without renal impairment`) + `negated_condition`, ≈5× yok. `not less than`/`no more than` sınırları aynen | parser |
+| D2 bağlam | `dogs`, `extended-release` (ayrı cümle), `burn patients` kayboluyor; temiz, 20 sa | Değersiz cümledeki formülasyon/nüfus/tür kapsamı → `field_context_unattributed`; alanda insan dışı tür → `non_human_context_in_field`; ≈5× yok. Aynı cümlecikteki sözlük dışı grup yakalanır (`burn patients`, temiz). Değer kendi koşulunu söylüyorsa taşınmaz/işaretlenmez | parser |
+| D3 özne | Drug B'nin 10 sa'i Drug A ölçümü, ≈5× 50 sa | Karşılaştırma yapısı (`unlike`, `compared with` …) → `subject_unresolved_comparison`; kayıt adı dışındaki büyük harfli özne (`half-life of Drug B`, `for Drug B`) → `subject_not_record_drug`; değer üretilmez. Metabolit, eş zamanlı ürün ve koşul sözcükleri özne sayılmaz | parser, service (kayıt adı) |
+| D4 referans | `…; duration of effect … 9 hours.[A2]` → 4 sa'e A2, `sentence_single_value`, doğrulanmış | Belirteç kendi `;` cümleciğine ait: `sentence_other_clause`, bağlanmaz, `nearby_reference_tokens`; aynı cümlecikte başka iddia → `sentence_shared`. `primary_reference_verified` → `stored_reference_attributed` (saklı eşleme; dış kaynak doğrulaması değil) | parser, models, service |
+| D5 yayılım | `4 ± 1 hours` → türetilmişte yayılım yok; `4 ± 9…9 days` → JSON'da `null` yayılım, temiz, 480 sa | ≈5× nesnesi `dispersion {statistic: not_stated, value_hours: 5}` taşır (yorum yok); sonlu olmayan/0'a yuvarlanan yayılım → inceleme, değer yok; türetilmişte `invalid_dispersion` | parser, calc, models |
+| D6 README | Yeni terminalde `$env:DO_POSTGRES_URL = $env:DEMO_URL` değişkeni siliyor, ayar `.env`'deki uygulama DB'sine dönüyor | 4. adım kendi başına: hedefi açıkça yazar, `uv run python -m src.timing.demo_guard` (yalnız süreç ortamı; tanımlı, loopback, sorgusuz, `_synth` = `M02_DEMO_CONFIRM`, salt okunur bağlanıp `current_database()` ve sentetik olmayan kullanıcı yokluğu) çıkış 0 vermeden `run.py` çalışmaz | README, `src/timing/demo_guard.py` |
+
+Sürüm: `m02-text-parser/2`, `m02-timing-compare/2` (alan adı değişikliği ve yeni alanlar;
+tüketici notu `backend/src/timing/API.md` → "Sürüm 2 değişiklikleri"). Şema, migration,
+bağımlılık, CI, frontend, `main.py` değişmedi.
+
+Değişen eski test beklentileri (gerekçeli): (1) sürüm dizeleri `/1` → `/2`;
+(2) `primary_reference_verified` → `stored_reference_attributed`; (3) `test_m02_core`:
+`in elderly patients` artık `elderly` değil metindeki tam grup `elderly patients`.
+Bu turda kendi yazdığım iki beklenti sözleşmeye göre değişti: `… is unknown but may be
+about 4 hours` artık atılmıyor, `hedged_value` ile işaretli tutuluyor; `Similar to other
+agents …, the half-life is 6 hours` değeri tutulup `comparison_in_clause` ile işaretleniyor
+(yalnız karşılaştırılanın ilgi cümleciğindeki değer atılıyor).
+Önceden kaydedilmiş 94 durumluk tablolar değişmedi ve geçiyor.
+
+Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim betiği (13 sentetik metin, HTTP yolu) `6776fac` → son kod | Önce 13/13 bulgudaki davranış; sonra D1 a–c değer yok, d işaretli (`without renal impairment`); D2 a–b işaretli, c `burn patients` koşuluyla temiz; D3 değer yok (`subject_unresolved_comparison`); D4 a–b `sentence_other_clause`, olumlu örnekte yalnız A1; D5 a yayılım ×5 taşınıyor, b değer yok (`invalid_value`) |
+| Yeni testler | `test_m02_audit_d1_d6.py` (olumlu / yakın / olumsuz örnekler, demo doğrulayıcı, yeni süreçte `.env`'ye dönmeme, README sırası), `test_m02_audit_round3.py` (bağımsız incelemenin iki yönü), `test_m02_audit_http_pg.py` (HTTP → sentetik PG; D1–D6), `test_m02_api_doc.py` (API.md tam örneği = gerçek çıktı) |
+| Bağımsız inceleme turu (2 mercek + doğrulayıcı; düzeltmelerin bypass'ı ve aşırı reddi) | 19 bulgunun 19'u yeniden üretildi. Aşırı ret 9 (en önemlisi: `administration` içindeki `rat` alt dizesi eş zamanlı kullanım cümlelerini insan dışı sayıyordu; `No dose adjustment … as the half-life is 4 hours` reddediliyordu; değersiz sıradan cümleler bağlam sayılıyordu). Bypass 10 (`isn't`, kapalı fiil listesi, başka özne kalıpları, birimden sonra ya da adla yazılan yayılım, `PGHOSTADDR`/`PGSERVICE`). Hepsi genel kurallarla düzeltildi (RULES.md 8b); `test_m02_audit_round3.py` iki yönü de sınıyor (20 açık cümle temiz kalmalı, 34 varyant temiz olmamalı). Bu düzeltmelerden sonra ayrı bir inceleme turu çalıştırılmadı |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`), `uv lock --check` | **722 geçti, 0 atlandı** (taban 342 + M-02 380); kilit temiz; önceden kaydedilmiş fixture özetleri değişmedi |
+| README 4. adım, yeni PowerShell süreçleri | Değişken yok → `REFUSED … not set in this terminal`; sentetik olmayan hedef → `REFUSED … does not end with '_synth'`; doğru hedef → `OK …`; ardından uygulama açıldı, 5. adım: `schema=m02-timing-compare/2`, Tmax 0,5–1 sa, yarılanma ömrü 4–6 sa, ≈5× 20–30 sa `includes_tmax=false`, ikinci ilaç 1,5 sa (healthy adults) / 3 sa (patients with renal impairment) |
+| Frontend (değişmedi) | Bu turda yerelde çalıştırılmadı; frontend dosyası değişmedi, sonuç CI'dan |
+| GitHub CI | PR #5'teki son commit için: PR sayfasında |
+
+Çalıştırılmayanlar: gerçek DrugBank kümesi bu turda başlatılmadı/yeniden sayılmadı
+(sayılar `parser/1`'e ait, tarihsel); uzman kabulü yok; başarı yüzdesi üretilmedi;
+bu turdaki son düzeltmelerden sonra ayrı bağımsız inceleme turu yapılmadı.
+
+Kalan bilinen sınırlamalar: genel ilaç adı tanıma yok (küçük harfle yazılmış başka ilaç
+adı yakalanmaz; marka adı kayıt ilacından ayırt edilemez → incelemeye düşer); kural
+listesi dışındaki olumsuzlama/belirsizlik kalıpları ve sözlük dışı tür/grup adları
+kaçabilir; değer dışı bağlam yalnız açık kapsam cümlelerinde tanınır. Kural
+belirsizlikte değeri işaretler ya da atar; bu da bazı doğru değerlerin incelemeye
+düşmesine yol açar.
+
+Kadir/Halil için: C1 ve mevcut ekranlar değişmedi. M-02 tüketicisi ileride
+`stored_reference_attributed`'ı "kaynak doğrulandı" diye göstermemeli; alan değişiklikleri
+`backend/src/timing/API.md` → "Sürüm 2 değişiklikleri". Ortak dosya talebi yok. Geri alma:
+bu düzeltme commit'inin revert'i (veri/şema değişikliği yok).
 
 ---
 

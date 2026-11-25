@@ -10,9 +10,9 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/1"
+PARSER_VERSION = "m02-text-parser/2"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -142,6 +142,8 @@ _LOWER_TAIL = [
 _NEGATED_TAIL = [  # checked first: 'not less than' is a LOWER bound
     (re.compile(r"\b(?:no|not)\s+(?:less|shorter|fewer)\s+than\s*$", _I), "lower_bound", True),
     (re.compile(r"\b(?:no|not)\s+(?:more|longer|greater)\s+than\s*$", _I), "upper_bound", True),
+    (re.compile(r"(?:\bnot|n['’]t)\s+(?:exceed(?:ing)?|above|over)\s*$", _I), "upper_bound", True),
+    (re.compile(r"(?:\bnot|n['’]t)\s+(?:below|under)\s*$", _I), "lower_bound", True),
 ]
 _WITHIN_TAIL = re.compile(r"\bwithin\s*$", _I)
 # A change verb right before the value: 'delayed Tmax approximately 1.5 hours',
@@ -207,6 +209,94 @@ _EXCLUDE_SUFFIX = [
     (re.compile(r"^\s*\)\s*[:=]"), "table_layout"),
 ]
 _RESPECTIVELY = re.compile(r"\brespectively\b", _I)
+
+# M02-D1: a negated value ('is not 4 hours') or an undetermined statement
+# ('... has not been established'). 'not less than' / 'no more than' /
+# 'does not exceed' are bounds (qualifier rules), not negations of the value.
+_NOT = r"(?:not|n['’]t|never|cannot|no)"
+_BOUND_AFTER_NOT = (r"(?:less|more|longer|shorter|greater|fewer|later|earlier|sooner|exceed\w*|above|below|under"
+                    r"|over)\b")
+_NEGATION = re.compile(rf"(?:\b(?:not|never|cannot|no)\b|n['’]t\b)(?!\s+{_BOUND_AFTER_NOT})", _I)
+_UNDETERMINED = re.compile(
+    r"(?:\b(?:not|never)|n['’]t)\s+(?:yet\s+)?(?:be(?:en)?\s+)?(?:well[\s-]|fully\s+|clearly\s+|reliably\s+"
+    r"|adequately\s+)?(?:established|determined|known|characteri[sz]ed|reported|measured|studied|available"
+    r"|confirmed|defined|elucidated|quantified|observed|demonstrated|seen|verified|proven|shown|validated"
+    r"|replicated)\b"
+    r"|\byet to be\s+\w+|\b(?:unknown|undetermined|unclear|uncertain|unproven|unconfirmed|unverified|refuted)\b"
+    r"|\bnot applicable\b", _I)
+# Hedged value: kept, but flagged (no 5x).
+_HEDGE = re.compile(
+    r"\b(?:may|might|could)\s+be\b|\bpossibly\b|\bpresumably\b|\bpurportedly\b"
+    r"|\b(?:thought|believed|assumed|speculated|suggested|hypothesi[sz]ed|presumed)\s+to\s+be\b", _I)
+# Subordinating words start the value's own clause: in 'No dose adjustment is
+# required as the half-life is 4 hours' the negation belongs to another predicate.
+_CLAUSE_START = re.compile(
+    r",|;|\b(?:and|but|while|whereas|as|since|because|so|although|though|which|that|when|where|if|whether)\b", _I)
+# 'X has not been established' right after the value, or a following
+# 'This/It/The value ... not established' clause or sentence.
+_PREDICATE_CONTINUES = re.compile(
+    r"^\s*(?:\([^)]*\)\s*)?,?\s*(?:has|have|had|was|were|is|are|could|can|may|might|remains?)\b", _I)
+_ANAPHORIC_START = re.compile(
+    r"^\s*(?:\[[^\]]*\]\s*)?(?:however,?\s*)?(?:this|these|that|such|it|the (?:value|values|estimate|figure"
+    r"|result|half-life|tmax))\b", _I)
+# A condition term preceded by a negation keeps the negation in its text
+# ('without renal impairment', 'lacking renal impairment') and is flagged.
+_NEG_COND_TAIL = re.compile(
+    r"(?:\bwithout|\blacking|\bnot(?:\s+(?:in|with|for|on|receiving|undergoing|having))?"
+    r"|\bwho\s+(?:do|does|did)\s+not\s+have|\bno|\bexcept(?:\s+(?:for|in))?|\bexcluding|\bother than"
+    r"|\bfree (?:of|from)|\babsence of|\bunless)\s*(?:(?!(?:and|or|but)\b)[\w-]+\s+){0,2}$", _I)
+# M02-D3: the value may belong to another subject.
+_COMPARISON = re.compile(
+    r"\b(?:unlike|like|similar to|compared (?:with|to)|in contrast to|as with|relative to"
+    r"|than (?:that|those) of)\b", _I)
+_RELATIVE_START = re.compile(r"\s*,?\s*(?:which|that)\b", _I)
+_RELATIVE_TO_COMPARAND = re.compile(r"\b(?:which|who|whose|with)\b|\(", _I)
+_NAME = r"[A-Z][\w-]*(?:\s+[A-Z0-9][\w-]*){0,2}"
+_KW_I = r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})"
+_NAMED_SUBJECT_BEFORE = [re.compile(p) for p in (
+    rf"{_KW_I}\s+(?:of|for)\s+({_NAME})",
+    rf"\b({_NAME})['’]s\s+(?:\w+\s+){{0,2}}{_KW_I}",
+    rf"\b({_NAME})\s+(?:has|have|had|exhibits?|shows?|displays?|possess(?:es)?)\s+(?:an?\s+|the\s+)?(?:\w+\s+){{0,2}}"
+    rf"{_KW_I}",
+    rf"(?:^|[.;]\s*)(?:\[[^\]]*\]\s*)?(?:For|In)\s+({_NAME}),",
+    rf"^\s*(?:\[[^\]]*\]\s*)?({_NAME}):",
+    rf"{_KW_I}\s*\(({_NAME})\)",
+)]
+_NAMED_SUBJECT_AFTER = re.compile(rf"^\s*(?:\([^)]*\)\s*)?(?:for|of|with)\s+({_NAME})")
+_GROUP_NOUN = re.compile(r"\b(?:subjects?|patients?|volunteers?|individuals?|people|adults?|children|infants"
+                         r"|populations?|tablets?|capsules?|formulations?|solutions?|injections?|groups?)\b", _I)
+_METABOLITE_CODE = re.compile(r"^[A-Z]{1,3}-?\d+[a-z]?$")
+_MEASURE_WORD = re.compile(r"^(?:half[\s-]?li(?:fe|ves)|t\s?max|t1/2|tmax|absorption|elimination|distribution"
+                           r"|mean|median|terminal|plasma|serum|the|this|these|its|it|peak|maximum)$", _I)
+# M02-D5: a spread written after the value/unit or named as a statistic.
+_SPREAD_PREFIX = re.compile(
+    r"(?:±|\+\s*/?\s*-|∓|\bplus or minus\b|(?<![\w)])\+|\b(?:SD|SEM|SE|CV|IQR)\b|standard deviation(?:\s+of)?"
+    r"|standard error(?:\s+of)?|\bCI\b|confidence interval|interquartile range|coefficient of variation)\s*[:=]?\s*$",
+    _I)
+_SPREAD_SUFFIX = re.compile(
+    r"^\s*[,(]?\s*(?:±|\+\s*/?\s*-|∓|plus or minus|(?:with\s+an?\s+)?(?:SD|SEM|SE|CV|IQR|standard deviation"
+    r"|standard error|coefficient of variation|interquartile range|\d+\s*%\s*(?:CI|confidence interval)|CI)\b)", _I)
+_RANGE_TAIL = re.compile(r"\d\s*(?:to|[-–])\s*$", _I)
+# M02-D2: a value-less sentence sets the scope of the values only when it says
+# so ('These measurements were obtained in dogs.', 'These data apply to the
+# extended-release formulation.', 'The study enrolled septic patients.').
+_SCOPE_SIGNAL = re.compile(
+    r"\b(?:these|this|the above|the following|such|all)\s+(?:pharmacokinetic\s+)?(?:data|values?|measurements?"
+    r"|results?|parameters?|findings|estimates|observations)\b"
+    r"|\b(?:data|values?|measurements?|results?|parameters?)\s+(?:were|was|are|is|come|came)\s+(?:obtained|derived"
+    r"|measured|determined|collected|generated|reported|from)\b"
+    r"|\bappl(?:y|ies)\s+(?:only\s+)?to\b|\brefers?\s+to\b"
+    r"|\b(?:the|this)\s+study\s+(?:enrolled|included|was conducted|was performed)\b"
+    r"|\bstudies\s+were\s+(?:done|conducted|performed|carried out)\b", _I)
+_SCOPE_NOUN = re.compile(r"\b(?:patients|subjects|volunteers|individuals|animals|species|population|formulations?"
+                         r"|forms?|preparations?|products?)\b", _I)
+# M02-D2: categories whose context in another (value-less) sentence of the
+# same field makes a value's scope uncertain.
+# Route and food are excluded: value-less sentences such as 'Oral
+# bioavailability is low.' or 'Food delays absorption.' are frequent and do
+# not set the scope of a value.
+_CONTEXT_CATEGORIES = ("formulation", "population", "other")
+_HUMAN = re.compile(r"\bhumans?\b|\bin man\b", _I)
 _HALF_LIFE_TIME_POINT_PREFIX = re.compile(r"\b(?:after|at|post)\s*$", _I)
 _TIME_POINT_SUFFIX = re.compile(
     r"^\s*(?:post[\s-]?dose|postdose|(?:after|following) (?:(?:the|last|first|a|an|single|oral|intravenous"
@@ -226,6 +316,14 @@ UNRESOLVED_TARGET_REASONS = {
 # Conditions
 # --------------------------------------------------------------------------
 _CS = 0  # case-sensitive flag
+# Non-human / in-vitro words, matched as WORDS (never as substrings:
+# 'administration' must not match 'rat').
+_NON_HUMAN_RE = (
+    r"\b(?:rats?|mice|mouse|murine|rodents?|dogs?|beagles?|canines?|monkeys?|macaques?|cynomolgus|marmosets?"
+    r"|baboons?|primates?|rabbits?|pigs?|minipigs?|porcine|swine|animals?|in vitro|ex vivo|preclinical"
+    r"|non-?clinical|cattle|cows?|bovine|sheep|ovine|horses?|equine|cats?|feline|goats?|poultry|chickens?"
+    r"|guinea pigs?|hamsters?|ferrets?|veterinary|hepatocytes?|microsomes?|cell lines?|cultured cells)\b")
+NON_HUMAN_TERM = re.compile(_NON_HUMAN_RE, re.I)
 _COND_PATTERNS: Dict[str, List[Tuple[str, int]]] = {
     "route": [
         (r"\boral(?:ly)?\b|\bby mouth\b|\bper os\b|\bp\.o\.?", _I), (r"\bPO\b", _CS),
@@ -259,11 +357,15 @@ _COND_PATTERNS: Dict[str, List[Tuple[str, int]]] = {
         (r"\b(?:children|infants|adolescents|neonates|patients|subjects|boys|girls)\s+(?:aged\s+)?\d+(?:\.\d+)?"
          r"\s*(?:-|–|to)\s*\d+(?:\.\d+)?\s*(?:years?|months?|weeks?|days?)\b", _I),
         (r"\b\d+(?:\s*(?:-|–|to)\s*\d+)?\s*years?\s+(?:old|of age)\b", _I),
+        # M02-D2: a group named with 'in/among <1-2 words> patients' that is not
+        # in the vocabulary is still a condition ('in burn patients')
+        (r"(?:(?<=\bin\s)|(?<=\bamong\s))(?!(?:all|most|some|these|those|the|many|few|both|such|other)\b)"
+         r"(?:[A-Za-z][\w-]*\s+){1,2}(?:patients|subjects|volunteers|individuals|people|recipients|users)\b", _I),
         (r"\b(?:young(?:er)?|middle-aged)\s+(?:adults|patients|subjects|people|volunteers|individuals)\b"
          r"|\b(?:healthy\s+)?controls?\b", _I),
         (r"\b(?:elderly|geriatric|older (?:adults|patients|subjects)|children|child|pediatric|paediatric"
          r"|adolescents?|infants?|neonates?|newborns?|premature|preterm|pregnan(?:t|cy)|smokers?|obese"
-         r"|critically ill|adults?|volunteers?|men|women|males?|females?)\b", _I),
+         r"|critically ill|adults?|volunteers?|men|women|males?|females?|non-?smokers?)\b", _I),
     ],
     "food_state": [
         (r"\bfast(?:ed|ing)\b|\bfed\b|\bwith(?:out)? (?:a )?(?:food|meals?)\b"
@@ -291,8 +393,7 @@ _COND_PATTERNS: Dict[str, List[Tuple[str, int]]] = {
          r"|\bphase of distribution\b", _I),
     ],
     "other": [
-        (r"\b(?:rats?|mice|mouse|dogs?|monkeys?|rabbits?|pigs?|animals?|in vitro|preclinical|cattle|cows?|sheep"
-         r"|horses?|cats?|goats?|swine|poultry|chickens?|guinea pigs?|hamsters?|ferrets?|primates?|veterinary)\b", _I),
+        (_NON_HUMAN_RE, _I),
         (r"\bhumans?\b", _I),
         # radioactive decay, not elimination from the body
         (r"\bphysical half[\s-]?life\b|\bradioactive (?:half[\s-]?life|decay)\b|\bdecays?\b", _I),
@@ -346,9 +447,14 @@ def canonical_term(term: str) -> str:
                                        "intranasal", "intrathecal", "intravitreal"):
         return t[:-2]
     words = t.split()
+    # 'pediatric patients' -> 'pediatric' -> 'child'; 'adult patients' -> 'adult'
+    if len(words) > 1 and words[-1] in ("patients", "patient", "subjects", "subject", "volunteers",
+                                        "volunteer", "individuals", "people"):
+        return canonical_term(" ".join(words[:-1]))
     if words and len(words[-1]) > 3 and words[-1].endswith("s") and not words[-1].endswith(("ss", "is", "us")):
         words[-1] = words[-1][:-1]
-    return " ".join(words)
+    joined = " ".join(words)
+    return _CANON.get(joined, joined)
 
 
 # --------------------------------------------------------------------------
@@ -386,7 +492,9 @@ class ParsedValue:
     time_reference: str
     review_reasons: List[str]
     reference_tokens: List[str]
-    reference_scope: str = "none"  # value_window | sentence_single_value | sentence_shared | none
+    # value_window | sentence_single_value | sentence_shared | sentence_other_clause | none
+    reference_scope: str = "none"
+    nearby_reference_tokens: List[str] = field(default_factory=list)
     conflict_group: Optional[str] = None
 
 
@@ -617,9 +725,18 @@ def extract_conditions(window_text: str, measure_type: str) -> Dict[str, object]
         matches = []
         for p in patterns:
             for m in p.finditer(window_text):
-                term = _norm(m.group(0))
+                start = m.start()
+                neg = _NEG_COND_TAIL.search(window_text[:start])
+                if neg and key not in ("phase", "kinetics", "matrix"):
+                    start = neg.start()  # keep the negation inside the term text
+                    negated = True
+                else:
+                    negated = False
+                term = _norm(window_text[start:m.end()])
                 if term:
-                    matches.append((m.start(), m.end(), term))
+                    matches.append((start, m.end(), term))
+                    if negated:
+                        cond["_negated"] = True
         cond[key] = _dedupe_contained(matches)
     met = [_norm(m.group(0)) for m in _METABOLITE.finditer(window_text)]
     par = [_norm(m.group(0)) for m in _PARENT.finditer(window_text)]
@@ -785,7 +902,74 @@ def _is_cutting(m: re.Match, stext: str) -> bool:
 # --------------------------------------------------------------------------
 # Field parsing
 # --------------------------------------------------------------------------
-def parse_field(source_field: str, text: Optional[str], stored_max_length: Optional[int] = None) -> FieldParse:
+def _strip_tags(name: str) -> str:
+    return re.sub(r"\[[^\]]*\]", " ", name or "").strip().lower()
+
+
+_FORM_NOUN = re.compile(r"\s+(?:tablets?|capsules?|formulations?|solutions?|injections?)\b.*$", _I)
+
+
+def _subject_verdict(names: Optional[Sequence[str]], candidate: str, following: str = "") -> str:
+    """'record' | 'foreign' | 'code' | 'ignore' for a capitalised name found as
+    the subject of the measure. Group phrases ('Japanese subjects'), condition,
+    measure and species words are ignored; metabolite-like codes ('M1') are
+    flagged, not refused. A product word is stripped ('Zorvix tablets' is judged
+    as 'Zorvix'). A different spelling of the record name ('Synthazol-N-oxide')
+    is foreign. Without record names nothing is judged; there is no general
+    drug-name recognition (lower-case names are not detected)."""
+    head = candidate.strip()
+    if not names or not head:
+        return "ignore"
+    nxt = following.split()[0] if following.split() else ""
+    if _GROUP_NOUN.fullmatch(nxt or "-") and not _FORM_NOUN.match(" " + nxt):
+        return "ignore"  # 'Japanese subjects', 'Adult patients': a population, not a drug
+    if (not head or _MEASURE_WORD.match(head) or _condition_spans(head) or _METABOLITE.search(head)
+            or _PARENT.search(head) or _HUMAN.search(head) or NON_HUMAN_TERM.search(head)):
+        return "ignore"
+    if _METABOLITE_CODE.match(head):
+        return "code"
+    low = head.lower()
+    known = [n for n in (_strip_tags(x) for x in names) if n]
+    if any(low == n or low.startswith(n + " ") or n.startswith(low + " ") for n in known):
+        return "record"
+    return "foreign"
+
+
+def _field_context(raw: str, sentences: List[Span], all_matches, measure: str) -> Tuple[Dict[str, bool], bool]:
+    """(categories, non_human). Categories: condition categories stated in a
+    value-less sentence of the field that explicitly sets a scope ('These
+    measurements were obtained in dogs.', 'These data apply to the
+    extended-release formulation.', 'The study enrolled septic patients.');
+    'unrecognized' when such a sentence names a group/form outside the
+    vocabulary. non_human: a non-human/in-vitro word in such a scope sentence
+    or in a sentence that states a duration. Ordinary value-less sentences
+    ('It is available as tablets.', 'No dose adjustment is needed in the
+    elderly.') do not set a scope."""
+    cats: Dict[str, bool] = {}
+    non_human = False
+    for s, ms in zip(sentences, all_matches):
+        stext = raw[s.start:s.end]
+        if ms:
+            non_human = non_human or bool(NON_HUMAN_TERM.search(stext))
+            continue
+        words = re.findall(r"[A-Za-z][\w-]*", re.sub(r"\[[^\]]*\]", " ", stext))
+        heading = stext.rstrip().endswith(":") or (len(words) <= 4 and not stext.rstrip().endswith("."))
+        if not (_SCOPE_SIGNAL.search(stext) or heading):
+            continue
+        non_human = non_human or bool(NON_HUMAN_TERM.search(stext))
+        cond = extract_conditions(stext, measure)
+        found = [k for k in _CONTEXT_CATEGORIES if cond[k]]
+        for k in found:
+            cats[k] = True
+        if not found and _SCOPE_NOUN.search(stext):
+            cats["unrecognized"] = True
+    return cats, non_human
+
+
+def parse_field(source_field: str, text: Optional[str], stored_max_length: Optional[int] = None,
+                subject_names: Optional[Sequence[str]] = None) -> FieldParse:
+    """``subject_names``: names of the record drug (used only to notice a value
+    stated for another, capitalised subject; no name recognition otherwise)."""
     measure = FIELD_MEASURE[source_field]
     raw = text if text is not None else None
     length = len(raw) if raw else 0
@@ -811,6 +995,11 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
     all_matches = [list(DURATION_RE.finditer(raw[s.start:s.end])) for s in sentences]
     field_only_ok = (measure == HALF_LIFE and _field_only_allowed(
         raw, sentences, [m for ms in all_matches for m in ms]))
+    context_cats, non_human_in_field = _field_context(raw, sentences, all_matches, measure)
+    if context_cats:
+        fp.flags.append("context_in_valueless_sentence:" + ",".join(sorted(context_cats)))
+    if non_human_in_field:
+        fp.flags.append("non_human_species_mentioned")
 
     for idx, (sent, matches) in enumerate(zip(sentences, all_matches)):
         stext = raw[sent.start:sent.end]
@@ -884,6 +1073,39 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             if excl:
                 review(excl)
                 continue
+            # M02-D1: a negated or undetermined value is not a measurement. Only
+            # the value's own clause counts ('No dose adjustment is required as
+            # the half-life is 4 hours' is a clear value); a negation that governs
+            # a condition ('in patients with no hepatic impairment') is a negated
+            # condition, not a negated value.
+            before = stext[win.start:m.start()]
+            starts = list(_CLAUSE_START.finditer(before))
+            own_clause = before[starts[-1].end():] if starts else before
+            cond_spans = _condition_spans(own_clause)
+            value_negations = [
+                n for n in _NEGATION.finditer(own_clause)
+                if not any(0 <= c.start - n.end() <= 30 for c in cond_spans)]
+            if value_negations:
+                review("negated_value")
+                continue
+            after = stext[m.end():win.end]
+            after_starts = list(_CLAUSE_START.finditer(after))
+            first_after = after[:after_starts[0].start()] if after_starts else after
+            relative_after = ""
+            rel = _RELATIVE_START.match(after[after_starts[0].start():]) if after_starts else None
+            if rel:
+                rel_end = after_starts[0].start() + rel.end()
+                nxt = min([x.start() for x in after_starts if x.start() >= rel_end], default=len(after))
+                relative_after = after[after_starts[0].start():nxt]
+            if (_UNDETERMINED.search(own_clause) or _UNDETERMINED.search(first_after)
+                    or _UNDETERMINED.search(relative_after)):
+                review("undetermined_statement")
+                continue
+            hedged = bool(_HEDGE.search(own_clause) or _HEDGE.search(first_after))
+            # M02-D5: a spread or range written in a form the value rules do not read
+            if _SPREAD_PREFIX.search(prefix) or _RANGE_TAIL.search(prefix):
+                review("dispersion_or_range_form_not_structured")
+                continue
             approx, bound, inclusive, ambiguous, within = _qualifiers(prefix)
             if ambiguous:
                 review(ambiguous)
@@ -905,6 +1127,30 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             if _CHANGE_VERB_TAIL.search(prefix) or _CHANGE_VERB_TAIL.search(bare):
                 review("change_statement" if _TO_TAIL.search(bare) else "change_amount")
                 continue
+            # M02-D3: the value may describe another subject. A value inside the
+            # comparand's relative clause ('Unlike Drug B, which has a half-life of
+            # 10 hours, ...') is not the record drug's; a comparison earlier in
+            # the clause only flags the value.
+            comparison_flag = False
+            cmp_before = list(_COMPARISON.finditer(before))
+            if cmp_before:
+                if _RELATIVE_TO_COMPARAND.search(before[cmp_before[-1].end():]):
+                    review("subject_unresolved_comparison")
+                    continue
+                comparison_flag = True
+            # each candidate is judged with the two words that follow it
+            # ('Japanese subjects', 'Zorvix tablets')
+            named = [(x.group(1), " ".join(stext[x.end(1):x.end(1) + 30].split()[:2]))
+                     for rx in _NAMED_SUBJECT_BEFORE for x in rx.finditer(stext[:m.start()])]
+            after_subject = _NAMED_SUBJECT_AFTER.match(stext[m.end():win.end])
+            if after_subject:
+                tail = stext[m.end() + after_subject.end(1):m.end() + after_subject.end(1) + 30].split()[:2]
+                named.append((after_subject.group(1), " ".join(tail)))
+            verdicts = [_subject_verdict(subject_names, n, nxt) for n, nxt in named]
+            if "foreign" in verdicts:
+                review("subject_not_record_drug")
+                continue
+            subject_code = "code" in verdicts
             if m.group("sign"):
                 review("invalid_value")
                 continue
@@ -965,7 +1211,14 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             dispersion = None
             if pmv is not None:
                 # '1.5 h ± 20 min': the value has u1, the spread has u2.
-                dispersion = (pmv, round(pmv * f2, 6), u2)
+                spread_h = pmv * f2
+                if not math.isfinite(spread_h):
+                    review("invalid_value")  # M02-D5: never a silent null spread
+                    continue
+                if pmv > 0 and round(spread_h, 6) == 0:
+                    review("value_below_precision")
+                    continue
+                dispersion = (pmv, round(spread_h, 6), u2)
 
             wtext = stext[win.start:win.end]
             cond = extract_conditions(wtext, measure)
@@ -979,6 +1232,26 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
                     _merge_leading(cond, lead_cond)
             if cond.pop("_analyte_ambiguous"):
                 reasons.append("analyte_ambiguous")
+            if hedged:
+                reasons.append("hedged_value")
+            if comparison_flag:
+                reasons.append("comparison_in_clause")
+            if subject_code:
+                reasons.append("subject_code_unresolved")
+            if _SPREAD_SUFFIX.match(stext[m.end():]):
+                reasons.append("dispersion_not_structured")
+            if cond.pop("_negated", False):
+                reasons.append("negated_condition")  # e.g. 'without renal impairment'
+            # M02-D2: context stated in a value-less sentence of the field
+            if context_cats.get("unrecognized"):
+                missing = not (cond["population"] or cond["formulation"] or cond["other"])
+            else:
+                missing = any(not cond[k] for k in context_cats)
+            if missing:
+                reasons.append("field_context_unattributed")
+            own_species = any(NON_HUMAN_TERM.search(o) or _HUMAN.search(o) for o in cond["other"])
+            if non_human_in_field and not own_species:
+                reasons.append("non_human_context_in_field")
             if uncertain[wi] and _condition_spans(stext) and "condition_attribution_ambiguous" not in reasons:
                 reasons.append("condition_attribution_ambiguous")
             if mi in parallel:
@@ -991,29 +1264,55 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             if truncated:
                 reasons.append("stored_text_possibly_truncated")
 
+            # M02-D4: a sentence-end token belongs to the last top-level ';'
+            # clause and to this value alone only if nothing else is claimed.
             window_tokens = reference_tokens(stext[win.start:min(win.end, trailing_start)])
+            nearby: List[str] = []
             if window_tokens:
                 tokens, scope = window_tokens, "value_window"
             elif trailing_tokens:
-                tokens, scope = trailing_tokens, "sentence"
+                depth = _paren_depths(stext)
+                top_semis = [i for i, ch in enumerate(stext[:trailing_start]) if ch == ";" and depth[i] == 0]
+                if any(i >= m.end() for i in top_semis):
+                    tokens, scope, nearby = [], "sentence_other_clause", list(trailing_tokens)
+                elif len(matches) > 1 or _residue_words(stext[m.end():trailing_start]):
+                    tokens, scope = trailing_tokens, "sentence_shared"
+                else:
+                    tokens, scope = trailing_tokens, "sentence_single_value"
             else:
                 tokens, scope = [], "none"
+            other_tokens = [t for t in reference_tokens(stext) if t not in tokens and t not in nearby]
+            nearby += other_tokens
             pv = ParsedValue(
                 measure_type=measure, basis=basis, source_field=source_field, sentence=sent,
                 value_span=abs_span, original=original, unit=unit, lower_unit=lower_unit, hours=hours,
                 approximate=approx, dispersion=dispersion, conditions=cond, time_reference=time_ref,
                 review_reasons=reasons, reference_tokens=tokens, reference_scope=scope,
+                nearby_reference_tokens=nearby,
             )
             sentence_values.append(pv)
 
         # '... X and Y, respectively': which value belongs to which subject is
         # positional, not stated next to the value.
         respectively = len(matches) > 1 and bool(_RESPECTIVELY.search(stext))
+        # M02-D1: a following clause or sentence that says the value is not
+        # established ('...; however, this has not been established.' /
+        # 'This has not been established.') flags the values it refers to.
+        depth = _paren_depths(stext)
+        semis = [i for i, ch in enumerate(stext) if ch == ";" and depth[i] == 0]
+        next_text = raw[sentences[idx + 1].start:sentences[idx + 1].end] if idx + 1 < len(sentences) else ""
+        denied_next = bool(_ANAPHORIC_START.match(next_text) and _UNDETERMINED.search(next_text))
         for pv in sentence_values:
+            rel_end = pv.value_span.end - sent.start
+            later = [stext[i + 1:(min([j for j in semis if j > i], default=len(stext)))]
+                     for i in semis if i >= rel_end]
+            denied_clause = any(_ANAPHORIC_START.match(c) and _UNDETERMINED.search(c) for c in later)
+            if (denied_clause or denied_next) and "undetermined_statement" not in pv.review_reasons:
+                pv.review_reasons.append("undetermined_statement")
             if respectively and "respectively_construct" not in pv.review_reasons:
                 pv.review_reasons.append("respectively_construct")
-            if pv.reference_scope == "sentence":
-                pv.reference_scope = "sentence_single_value" if len(sentence_values) == 1 else "sentence_shared"
+            if pv.reference_scope == "sentence_single_value" and len(sentence_values) > 1:
+                pv.reference_scope = "sentence_shared"
             if sentence_unresolved and "other_value_in_sentence_unresolved" not in pv.review_reasons:
                 pv.review_reasons.append("other_value_in_sentence_unresolved")
         fp.values.extend(sentence_values)

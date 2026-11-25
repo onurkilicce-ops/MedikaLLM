@@ -1,4 +1,4 @@
-# M-02 `POST /api/timing/compare` — tipli sözleşme (`m02-timing-compare/1`)
+# M-02 `POST /api/timing/compare` — tipli sözleşme (`m02-timing-compare/2`)
 
 Salt okunur; LLM/harici kaynak çağırmaz; hasta, doz, kişisel zamanlama veya
 reçete bilgisi almaz/üretmez. Ayrıştırma kuralları: [RULES.md](RULES.md).
@@ -52,8 +52,8 @@ Kural: **her dizi alanı her zaman vardır** (boşsa `[]`); bilinmeyen sayı
 
 ```
 TimingCompareResponse
-  schema_version: "m02-timing-compare/1"
-  parser_version: "m02-text-parser/1"
+  schema_version: "m02-timing-compare/2"
+  parser_version: "m02-text-parser/2"
   drugs: DrugTimingResult[]               # istek sırasıyla
   timing_advice: {status: "not_evaluated", advice: [] , note: str}
   limitations: {code: str, message: str}[]
@@ -104,17 +104,23 @@ SourceExcerpt
   quote (saklanan metnin tam cümlesi), quote_start, quote_end
   value_text, value_start, value_end       # stored_text[value_start:value_end] == value_text
   truncated: false (alıntı kısaltılmaz); stored_text_possibly_truncated: bool
-  inline_reference_tokens: str[]; references: ReferenceLink[]; unmatched_reference_tokens: str[]
+  inline_reference_tokens: str[]          # tokens ATTRIBUTED to this value
+  nearby_reference_tokens: str[]          # other tokens of the sentence, NOT attributed
+  references: ReferenceLink[]; unmatched_reference_tokens: str[]
   reference_status: "matched"|"partially_matched"|"unmatched"|"no_inline_reference"
-  reference_scope: "value_window"|"sentence_single_value"|"sentence_shared"|"none"
-  primary_reference_verified: bool
+  reference_scope: "value_window"|"sentence_single_value"|"sentence_shared"|"sentence_other_clause"|"none"
+  stored_reference_attributed: bool      # stored ref_id match + token belongs to this value alone;
+                                         # NOT a check that the external source was opened or supports it
 
 ReferenceLink {ref_id, ref_type, pubmed_id, isbn, citation, title, url}   # aynı ilacın drug_references satırı
 
 DerivedDuration
   derived_id: "<measurement_id>:x5"; kind: "approx_five_half_lives"
   based_on_measurement_id; status: "computed" | "not_computed"; multiplier: 5
-  hours: Quantity | null (not_computed'da null); not_computed_reasons: str[]
+  hours: Quantity | null (not_computed'da null)
+  dispersion: {kind: "plus_minus", statistic: "not_stated", value_hours, source_value_hours} | null
+              # kaynak '±' yayılımı aynı x5 ile taşınır; SD/aralık/GA diye yorumlanmaz, min–max'a çevrilmez
+  not_computed_reasons: str[]
   includes_tmax: false; assumptions: str[]; interpretation: str
 ```
 
@@ -129,8 +135,8 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 
 ```json
 {
-  "schema_version": "m02-timing-compare/1",
-  "parser_version": "m02-text-parser/1",
+  "schema_version": "m02-timing-compare/2",
+  "parser_version": "m02-text-parser/2",
   "drugs": [
     {
       "position": 0,
@@ -160,11 +166,11 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
             "quote_start": 0, "quote_end": 105,
             "value_text": "0.5-1 hours", "value_start": 58, "value_end": 69,
             "truncated": false, "stored_text_possibly_truncated": false,
-            "inline_reference_tokens": ["A900001"],
+            "inline_reference_tokens": ["A900001"], "nearby_reference_tokens": [],
             "references": [{"ref_id": "A900001", "ref_type": "article", "pubmed_id": null, "isbn": null,
                             "citation": "[SYNTHETIC] Synthetic absorption study.", "title": null, "url": null}],
             "unmatched_reference_tokens": [], "reference_status": "matched",
-            "reference_scope": "sentence_single_value", "primary_reference_verified": true
+            "reference_scope": "sentence_single_value", "stored_reference_attributed": true
           },
           "original": {"kind": "range", "value": null, "lower": 0.5, "upper": 1.0, "inclusive": null,
                        "unit": "hours", "lower_unit": null},
@@ -175,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/1"
+          "parser_version": "m02-text-parser/2"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -187,11 +193,11 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
             "quote_start": 0, "quote_end": 60,
             "value_text": "4-6 hours", "value_start": 41, "value_end": 50,
             "truncated": false, "stored_text_possibly_truncated": false,
-            "inline_reference_tokens": ["A900002"],
+            "inline_reference_tokens": ["A900002"], "nearby_reference_tokens": [],
             "references": [{"ref_id": "A900002", "ref_type": "article", "pubmed_id": null, "isbn": null,
                             "citation": "[SYNTHETIC] Synthetic elimination study.", "title": null, "url": null}],
             "unmatched_reference_tokens": [], "reference_status": "matched",
-            "reference_scope": "sentence_single_value", "primary_reference_verified": true
+            "reference_scope": "sentence_single_value", "stored_reference_attributed": true
           },
           "original": {"kind": "range", "value": null, "lower": 4.0, "upper": 6.0, "inclusive": null,
                        "unit": "hours", "lower_unit": null},
@@ -202,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/1"
+          "parser_version": "m02-text-parser/2"
         }
       ],
       "derived": [
@@ -211,6 +217,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
           "based_on_measurement_id": "DB00006:half_life:1",
           "status": "computed", "multiplier": 5,
           "hours": {"kind": "range", "value": null, "lower": 20.0, "upper": 30.0, "inclusive": null},
+          "dispersion": null,
           "not_computed_reasons": [], "includes_tmax": false,
           "assumptions": ["single_constant_half_life", "first_order_exponential_decline",
                           "approximate_duration_not_complete_elimination", "tmax_not_added"],
@@ -257,7 +264,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   },
   "limitations": [
     {"code": "stored_text_not_reverified", "message": "Values are read from text stored in this database (DrugBank import). ..."},
-    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/1, src/timing/RULES.md). ..."},
+    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/2, src/timing/RULES.md). ..."},
     {"code": "half_life_column_limit", "message": "..."},
     {"code": "general_references_not_linked", "message": "..."},
     {"code": "five_half_lives_is_an_approximation", "message": "..."},
@@ -268,6 +275,29 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   ]
 }
 ```
+
+## Sürüm 2 değişiklikleri (M02-O1-D1) — tüketiciler için not
+
+`m02-timing-compare/1` → `/2`, `m02-text-parser/1` → `/2`. Gelecekteki ekran (Onur)
+ve C1 eşlemesi (Kadir/Halil) için:
+
+- `source.primary_reference_verified` **kaldırıldı**, yerine `source.stored_reference_attributed`
+  (anlamı daraltıldı: saklı `ref_id` eşleşmesi + belirtecin yalnız bu değere ait olması;
+  dış kaynağın açılıp doğrulandığı anlamına gelmez). Ekranda "doğrulandı" diye gösterilmemeli.
+- `source.reference_scope` yeni değer: `sentence_other_clause` (belirteç başka `;` cümleciğini
+  kapatıyor; bağlanmaz). `sentence_shared` artık cümlede başka değer **veya** değerden sonra başka
+  iddia olduğunda da kullanılır.
+- Yeni `source.nearby_reference_tokens`: cümledeki, bu değere atfedilmeyen belirteçler.
+- Yeni `derived[].dispersion` (yalnız kaynakta `±` varsa; aksi halde `null`).
+- Yeni inceleme gerekçeleri. Ölçüm üretmeyenler (yalnız `review_items`): `negated_value`,
+  `undetermined_statement`, `subject_unresolved_comparison`, `subject_not_record_drug`,
+  `dispersion_or_range_form_not_structured`. Ölçümü tutup işaretleyenler
+  (`review_reasons`, ≈5× yok): `negated_condition`, `field_context_unattributed`,
+  `non_human_context_in_field`, `hedged_value`, `comparison_in_clause`,
+  `subject_code_unresolved`, `dispersion_not_structured`, sonraki cümle/cümlecikle
+  gelen `undetermined_statement`. Türetilmişte: `invalid_dispersion`.
+- Koşul terimleri artık metindeki olumsuzlamayı ve grup ifadesini korur
+  (`without renal impairment`, `elderly patients`, `burn patients`).
 
 ## İnceleme ve hesaplanamama örneği (sentetik)
 

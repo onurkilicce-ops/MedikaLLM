@@ -12,7 +12,7 @@ from .parser import (
     ELIMINATION_PHASES,
     HALF_LIFE,
     NON_ELIMINATION_PHASES,
-    NON_HUMAN_OTHER,
+    NON_HUMAN_TERM,
     NON_PLASMA_MATRIX,
     PHYSICAL_DECAY_OTHER,
     ParsedQuantity,
@@ -96,7 +96,7 @@ def not_computed_reasons(v: ParsedValue, field_flags: Iterable[str]) -> List[str
         reasons.append("nonlinear_or_dose_dependent_kinetics")
     if any(any(word in m for word in NON_PLASMA_MATRIX) for m in c.get("matrix", [])):
         reasons.append("non_plasma_matrix")
-    if any(any(word in o for word in NON_HUMAN_OTHER) for o in c.get("other", [])):
+    if any(NON_HUMAN_TERM.search(o) for o in c.get("other", [])):  # word match, not substring
         reasons.append("non_human_or_in_vitro")
     if any(any(word in o for word in PHYSICAL_DECAY_OTHER) for o in c.get("other", [])):
         reasons.append("physical_decay_not_elimination")
@@ -117,4 +117,13 @@ def five_half_lives(v: ParsedValue, field_flags: Iterable[str]) -> dict:
     out = _times(v.hours)
     if any(x is not None and not math.isfinite(x) for x in (out.value, out.lower, out.upper)):
         return {"status": "not_computed", "hours": None, "not_computed_reasons": ["invalid_value"]}
-    return {"status": "computed", "hours": out, "not_computed_reasons": []}
+    spread = None
+    if v.dispersion is not None:
+        # The '±' spread scales with the value (x5) whatever statistic it is;
+        # the statistic itself is not stated and not inferred.
+        source_h = v.dispersion[1]
+        scaled = source_h * MULTIPLIER
+        if not (math.isfinite(source_h) and math.isfinite(scaled)) or source_h < 0:
+            return {"status": "not_computed", "hours": None, "not_computed_reasons": ["invalid_dispersion"]}
+        spread = {"value_hours": round(scaled, 6), "source_value_hours": source_h}
+    return {"status": "computed", "hours": out, "not_computed_reasons": [], "dispersion": spread}
