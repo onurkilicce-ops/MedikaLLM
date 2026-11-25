@@ -53,7 +53,7 @@ Kural: **her dizi alanı her zaman vardır** (boşsa `[]`); bilinmeyen sayı
 ```
 TimingCompareResponse
   schema_version: "m02-timing-compare/2"
-  parser_version: "m02-text-parser/3"
+  parser_version: "m02-text-parser/4"
   drugs: DrugTimingResult[]               # istek sırasıyla
   timing_advice: {status: "not_evaluated", advice: [] , note: str}
   limitations: {code: str, message: str}[]
@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/3",
+  "parser_version": "m02-text-parser/4",
   "drugs": [
     {
       "position": 0,
@@ -181,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/3"
+          "parser_version": "m02-text-parser/4"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -208,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/3"
+          "parser_version": "m02-text-parser/4"
         }
       ],
       "derived": [
@@ -264,7 +264,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   },
   "limitations": [
     {"code": "stored_text_not_reverified", "message": "Values are read from text stored in this database (DrugBank import). ..."},
-    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/3, src/timing/RULES.md). ..."},
+    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/4, src/timing/RULES.md). ..."},
     {"code": "half_life_column_limit", "message": "..."},
     {"code": "general_references_not_linked", "message": "..."},
     {"code": "five_half_lives_is_an_approximation", "message": "..."},
@@ -275,6 +275,35 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   ]
 }
 ```
+
+## Ayrıştırıcı 4 (M02-O1-R3) — tüketiciler için not
+
+Sözleşme `m02-timing-compare/2` aynı kaldı (alan, kapsam değeri veya gerekçe kodu
+eklenmedi); ayrıştırıcı `m02-text-parser/3` → `/4`. Yalnız davranış değişti
+(ayrıntı: RULES.md 8d):
+
+- Virgüllü ara ifade yöneten cümleciği artık gizlemez: `There is no evidence that, in
+  adults, the half-life is 4 hours.` ve `… that the half-life, measured in adults, is 4
+  hours.` → ölçüm yok, `undetermined_statement`; `It is not known whether, after oral
+  administration, Tmax is 2 hours.` → `hypothetical_or_open_question`.
+  `Studies failed to establish that …` → `undetermined_statement`.
+- Ara ifadenin içindeki olumsuzluk/belirsizlik (`, which has never been confirmed,`)
+  → `undetermined_statement`. Temkinde (`, possibly,`, `, if confirmed,`) değer kalır,
+  `hedged_value` alır (5× yok). Zincirleme `that`, `remains to be shown`, `is false/
+  mistaken` → `undetermined_statement`; soru cümlesi → `hypothetical_or_open_question`.
+- `never shorter than 4 hours` artık alt sınırdır (`lower_bound`); önceden yanlışlıkla
+  üst sınır okunuyordu.
+- Küçük harfli iyelik (`drug b's half-life`), çerçeve (`For drug b, …`, `For drug b and
+  drug c, …`), `compound a`, karşılaştırma ürünü (`comparator drug's`), çoğul (`the two
+  drugs'`), başka ilacın metaboliti ve `drug b reaches peak …` kayıt ilacı değilse →
+  ölçüm yok, `subject_unresolved`. Kendi öznesi olmayan sonraki değer (`… and 12 hours
+  in children`) cümledeki önceki özneye göre değerlendirilir.
+- Değerden sonraki ayrı iddia içeren ayraç veya `: …` içindeki belirteç ve böyle bir
+  ayraçtan hemen sonra gelen belirteç `inline_reference_tokens`/`references`'a girmez,
+  `nearby_reference_tokens`'ta kalır. Belirsiz ayraçtan sonra gelen cümle sonu
+  belirteci `sentence_shared` olur (`stored_reference_attributed=false`). Koşul,
+  istatistik, kısaltma ya da kaynak gösteren ayraç (`(e.g. in adults)`, `(n = 12,
+  SD 1.1)`, `(Smith et al. [A1])`) değerin iddiasında kalır.
 
 ## Ayrıştırıcı 3 (M02-O1-R2) — tüketiciler için not
 

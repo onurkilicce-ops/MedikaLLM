@@ -452,6 +452,116 @@ Bilinen sınırlar: kayıt adının eşanlamlısı/markası özne olarak yazıl�
 kural listesi dışındaki yöneten fiiller ve sözlük dışı türler kaçabilir. Uzman kabulü yok;
 gerçek veri bu turda açılmadı. Geri alma: bu R2 commit'inin revert'i.
 
+#### M02-O1-R3 — Üçüncü denetim düzeltmeleri (Astra, denetlenen `844f3bb`; teslim, yeniden denetim bekliyor)
+
+Önceki tur (R2, `844f3bb`) için CI: çalıştırma 45625761298 başarılı (backend 757,
+frontend 53 + build). Checkout SHA `4bec90ba03173efb07e8a42b55ea7a486d588684` (PR birleştirme
+önizlemesi).
+
+Denetçinin kararı: D1, D3 ve D4'te açık yollar var. Sekiz sentetik örneğin hepsi önce
+`844f3bb`'de yeniden üretildi, sonra düzeltildi. Yol gerçek router → token/yetki → servis →
+JSON; yalnız repository okuma sınırı sentetik satırlarla değiştirildi (kayıt adı
+`[SYNTHETIC] Drug A`, saklı referanslar A1/A2).
+
+| Örnek | `844f3bb` (HTTP) | Şimdi (HTTP) |
+|---|---|---|
+| D1.1 `There is no evidence that, in adults, the half-life is 4 hours.` | temiz 4 sa, `population=[adults]`, ≈5× 20 sa | ölçüm yok, `undetermined_statement` |
+| D1.2 `… that the half-life, measured in adults, is 4 hours.` | temiz 4 sa, 20 sa | ölçüm yok, `undetermined_statement` |
+| D1.3 `Studies failed to establish that the half-life is 4 hours.` | temiz 4 sa, 20 sa | ölçüm yok, `undetermined_statement` |
+| D1.4 `It is not known whether, after oral administration, Tmax is 2 hours.` | temiz Tmax 2 sa | ölçüm yok, `hypothetical_or_open_question` |
+| D3.1 `drug b's half-life is 10 hours.` | Drug A altında temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D3.2 `For drug b, the half-life is 10 hours.` | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D4.1 `The half-life is 4 hours (adverse events are described elsewhere [A2]).` | `inline=[A2]`, `value_window`, `stored_reference_attributed=true` | `inline=[]`, `references=[]`, `nearby=[A2]`, `none`, `false` |
+| D4.2 `The half-life is 4 hours: adverse events are described elsewhere [A2] in the report.` | aynı hata (A2 bağlı) | aynı düzeltme (A2 yalnız `nearby`) |
+
+Olumlu eşler hem önce hem sonra temiz ve aynı kaldı:
+- `Studies have shown that, in adults, …` → 20 sa, `adults`;
+- `No dose adjustment … as the half-life is 4 hours`;
+- `not less than 4 hours` (alt sınır);
+- `drug a's` / `For drug a,` ile büyük harfli eşleri;
+- `4 hours.[A1]`, `4 hours, in adults.[A1]`, `4.5 hours.[A1]` → `[A1]`,
+  `sentence_single_value`, `true`;
+- A1 ile ilgisiz cümledeki A2 ayrı kalıyor.
+
+Büyük ve küçük harfli `Drug B's` / `drug b's` ile `For Drug B,` / `For drug b,` artık aynı
+davranıyor: ikisinde de ölçüm yok.
+
+Birleşik örnekler:
+- `There is no evidence that, for drug b, the half-life (measured in adults) is 4 hours
+  [A2].` → ölçüm yok.
+- `Studies have shown that, for drug a, the half-life is 4 hours (adverse events are
+  described elsewhere [A2]).[A1]` → temiz, 20 sa; A2 bağlanmıyor, A1 ayrı iddiadan sonra
+  geldiği için `sentence_other_clause`.
+- `drug b's half-life is 10 hours: adverse events … [A2]. drug a's half-life is 4 hours.[A1]`
+  → 10 sa düşüyor, 4 sa kalıyor; A2 bağlanmıyor.
+
+Bağımsız çürütme taraması: ilk düzeltmeden sonra ayrı ajanlar parser'ı yürüterek açık
+aradı (D1/D3/D4 merceği). Doğrulanan yollar aynı turda genel kurallarla kapatıldı ve
+testlere eklendi:
+- D1:
+  - `, however, that`;
+  - `failed, despite …, to establish`;
+  - ara ifade içindeki `never confirmed` / `possibly` / `if confirmed`;
+  - zincirleme `that`;
+  - `remains to be shown`, `is false/mistaken`;
+  - soru cümlesi;
+  - `never shorter than` (önceden yanlışlıkla üst sınır okunuyordu).
+- D3: `compound a`, `For drug b and drug c,`, `comparator drug's`, çoğul `drugs'`, `ʼ`/`` ` ``
+  kesmeleri, başka ilacın metaboliti, `drug b reaches peak …`, aynı cümlede öznesiz ikinci
+  değer.
+- D4: `(rash is common) [A2]`; `(e.g. …)`, `(n = 12, SD 1.1)`, `(Smith et al. [A1])`
+  içinde/sonrasında A1'in kaybolması.
+- İlk düzeltmenin getirdiği aşırı ret: `…, but in children, 4 hours`, `For oral
+  administration,`, `drug a hydrochloride`, `Japanese subjects`, `ER tablets`.
+
+D3 doğrulayıcılarının bir kısmı kullanım sınırına takıldı; o bulgular burada yürütülerek
+doğrulandı. İkinci bir ajan taraması yapılamadı.
+
+Tasarım kararı: yeni NLP/LLM yok; kurallar RULES.md 8d'de.
+- (1) Virgüllü ara ifadeler cümlecik çözümlemesinde boşlanır, içerikleri ayrıca okunur.
+  Bağlaç sözcüğüyle başlayan parça ara ifade sayılmaz.
+- (2) Özne adayları her harf büyüklüğünde, kalıntı ada indirgenerek kayıt adıyla
+  karşılaştırılır. Önce pencereye bakılır; pencerede özne yoksa cümlede önceki özneye.
+- (3) Ayraç ve `: ` içeriği `annotation` / `claim` / `unclear` olarak sınıflanır.
+  Yalnız `annotation` değerin iddiasına girer; `unclear` belirsizlik olarak raporlanır
+  (`sentence_shared`, `stored_reference_attributed=false`).
+
+Temiz kabul edilenler: açık iddia, kayıt ilacı ya da genel özne, koşul/istatistik ayracı.
+İncelemeye bırakılanlar: olumsuz/şüpheli yöneten ya da ara ifade, soru, kayıt dışı özne.
+
+Sürüm: ayrıştırıcı `m02-text-parser/3` → `/4` (davranış değişti). API yapısı, alanlar,
+kapsam değerleri ve gerekçe kodları değişmediği için sözleşme `m02-timing-compare/2` kaldı
+(tüketici notu API.md "Ayrıştırıcı 4"). Şema, bağımlılık, CI, frontend, `main.py`, ortak
+fixture ve D5/D6 kodu değişmedi; önceden kaydedilmiş 94 durum değişmeden geçiyor.
+
+Değişen eski beklentiler: yalnız sürüm dizesi (`parser/3` → `/4`, iki entegrasyon testinde).
+
+Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (26 sentetik metin, HTTP) `844f3bb` → son kod | Önce 8/8 hatalı, sonra 8/8 düzeltilmiş; olumlu eşler aynı |
+| R2 örnekleri (20) ve D1–D6 örnekleri (13), HTTP | R2 sonucuyla birebir aynı (yalnız ayrıştırıcı sürümü farklı) |
+| Çürütme yoklamaları (75) ve sıradan cümleler (33) | 75/75 beklenen; 33 cümlenin 31'i temiz, 2'si bilinçli işaretli (`no hepatic impairment` → `negated_condition`; `range, 3 to 5` → çelişki; ikisi de önceki kural) |
+| Yeni testler | `test_m02_audit_r3.py` (D1/D3/D4 olumlu / olumsuz / yakın / birleşik + çürütme yolları), `test_m02_audit_r3_http_pg.py` (HTTP → sentetik PG: sekiz örnek, olumlu eşler, A1/A2 ayrımı, birleşik örnekler) |
+| Birim | **651 geçti** |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **867 geçti, 0 atlandı** (86 sn). Bir ara koşu 67. testte durdu; artakalan süreç, PG oturumu ya da kilit yoktu, aynı dosya tek başına ve tam paket yeniden koşunca geçti (nedeni açıklanamadı, tekrarlanmadı) |
+| GitHub CI | Son commit için PR sayfasında |
+
+Bilinen sınırlar:
+- Kural listesi dışındaki yöneten fiiller, yanlışlama sözcükleri ve çizgi (`—`) ile
+  ayrılan ara ifadeler kaçabilir.
+- Genel ilaç adı tanıma yoktur: eşanlamlı/marka adı incelemeye düşer.
+- `Patients who did not eat had a Tmax …` önceki gibi `negated_value` verir.
+- `Pharmacokinetics:` başlığı incelemeye düşer.
+
+Uzman kabulü yok; gerçek veri bu turda açılmadı. Geri alma: bu R3 commit'inin revert'i
+(veri/şema değişikliği yok).
+
+Kadir/Halil için: C1, ajan, frontend ve ortak dosyalar değişmedi; ortak dosya talebi yok.
+M-02 tüketicisi `sentence_shared` / `sentence_other_clause` belirteçlerini "değerin
+kaynağı" diye göstermemeli.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/3`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/4`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -204,6 +204,118 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 `unparsed_needs_review` ölçüm yok, inceleme kalemi var (veya yarılanma ömrü
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
+
+## 8d. Sürüm 4 — üçüncü denetim (M02-O1-R3) kuralları
+
+Denetimin sekiz örneği ve ilk düzeltmeye karşı yapılan ayrı bir çürütme
+taramasında yürütülerek yeniden üretilen yollar bu kurallarla kapatıldı.
+
+- **Araya giren ifade (D1).** Cümlecik çözümlemesinden önce virgüllü ara ifadeler
+  (`, … ,`, en çok 80 karakter) boşlanır. Bu yalnız çözümleme için yapılır; koşullar ve
+  alıntı değişmez. Boşlanan konumlar:
+  - bağlaçtan hemen sonra (`that, in adults, the half-life is …`, `whether, after oral
+    administration, Tmax is …`);
+  - olumsuzluktan hemen sonra (`did not, however, find that`);
+  - özne ile fiil arasında (`the half-life, measured in adults, is …`);
+  - değerden hemen önce (`is not, in adults, 4 hours`);
+  - `that`/`whether`/`to`'dan hemen önce (`no evidence, however, that`, `failed, despite
+    repeated attempts, to establish`).
+
+  Böylece `that`/`whether`/`if` yine açan sözcük olur ve 8c'deki yöneten cümlecik
+  kuralı uygulanır. Bağlaç sözcüğüyle (`and`, `but`, `or`, `yet`, `so`, `while`,
+  `whereas`, `although`, `because`, `since`) başlayan parça ara ifade sayılmaz
+  (`…, but in children, 4 hours`). Bağlaçtan sonra virgülsüz gelen yan cümlecik
+  (`If taken with food, Tmax is 3 hours.`) de ara ifade değildir; değer ana cümlede
+  ileri sürülmüştür.
+- **Ara ifadenin sözcükleri (D1).** Boşlanan ara ifadenin içi yine de okunur:
+  - koşula bağlı olmayan olumsuzlama, belirlenmemişlik ya da şüphe varsa ölçüm yok,
+    `undetermined_statement` (`The half-life, which has never been confirmed, is 4
+    hours.`);
+  - temkin (`possibly`, `it is claimed`, `if confirmed`, `we suspect`, `reportedly`)
+    varsa değer kalır, `hedged_value` (5× yok).
+- **Zincirleme `that` (D1).** Art arda gelen her `that` düzeyinin yöneten cümleciği
+  okunur (`It is not true that the investigators reported that …`).
+- **Kurulamama ve yanlışlama (D1).**
+  - Belirlenmemişlik sayılanlar: `fail(ed/s/ure) to`, `unable to` ya da `inability to`
+    ardından `establish`, `determine`, `show`, `demonstrate`, `confirm`, `verify`,
+    `prove`, `detect`, `measure`, `identify`, `characterize`, `define`, `replicate`,
+    `reproduce`, `quantify`; ayrıca `remains to be shown/established/…` ile `false`,
+    `untrue`, `incorrect`, `mistaken`, `erroneous`, `disproven`, `discredited` (değerin
+    kendi cümleciğinde, yöneten cümlecikte ya da değerden sonra).
+  - `lack/absence of evidence|data|proof|support` yöneten şüphedir.
+  - Başka bir fiil alan `failed to respond` kapsam dışıdır.
+- **Soru (D1).** `?` ile biten cümledeki değer ileri sürülmemiştir → ölçüm yok,
+  `hypothetical_or_open_question`.
+- **Olumsuz sınır.** `never shorter than` ve `isn't shorter than` alt sınırdır;
+  `never longer than` üst sınırdır (8b'deki `not less than` gibi).
+- **Özne (D3).** Aşağıdaki kalıplar harf büyüklüğünden bağımsız okunur:
+  - `<sözcükler>'s half-life/Tmax/peak … concentration/Cmax` (araya en çok 4 sözcük;
+    `'`, `’`, `ʼ`, `` ` ``, `´` kesmeleri);
+  - çoğul `<sözcükler>' half-lives`;
+  - `<sözcükler> reaches/attains/achieves peak/maximum/Cmax`;
+  - `<en çok 5 sözcük> has/exhibits … half-life`;
+  - `For|In <en çok 5 sözcük>,` (cümle/pencere başında ya da `.;:,` veya `and`, `but`,
+    `while`, `whereas` sonrasında; `and`/`or`/`,` ile ayrılan her parça ayrı aday).
+
+  Her adaydan kalıntı ad çıkarılır. Belirleyiciler, genel sözcükler, tuzlar
+  (`hydrochloride`, `sodium` …), koşullar (özgün harf büyüklüğüyle de okunur:
+  `ER tablets`), grup, metabolit ve tür sözcükleri ile metabolit kodları (`M1`) atılır.
+  İlaç adından (`drug`, `compound`, `agent`, `product` …) hemen sonra gelen tek harf ya
+  da sayı kodu adın parçasıdır: `drug b`, `compound a`. Kayıt `[SYNTHETIC] Drug A`
+  için kalıntı `drug_a` olur, `compound a` ise kayıt değildir.
+
+  Karar:
+  - Kalıntı boşsa (`the drug's`, `In general,`, `For oral administration,`, `Japanese
+    subjects`) özne değildir.
+  - Kalıntı kayıt adına eşit ise ya da kayıt adıyla başlıyor/bitiyorsa kayıttır
+    (`drug a hydrochloride`, `valproic acid` için `acid's`).
+  - Diğer kalıntı yabancıdır → ölçüm yok, `subject_unresolved`.
+  - Çoğul ilaç adı (`the two drugs'`) ya da başka ürün işaretli ilaç adı (`comparator
+    drug`, `reference product`, `concomitant medication` …) her zaman yabancıdır.
+  - Önce değerin penceresi okunur. Pencerede özne yoksa ve pencerede ölçüm sözcüğü de
+    yoksa (`… 8 hours in adults and 12 hours in children`), cümlede daha önceki en
+    yakın özne geçerlidir. `…, and the half-life is 4 hours` kendi (genel) öznesini
+    taşır.
+
+  Büyük harfli ad 8a/8b'deki gibi ayrıca `subject_not_record_drug` verir. Genel ilaç
+  adı tanıma yoktur: kayıt adının eşanlamlısı/markası da incelemeye düşer.
+- **Ayraç ve iki nokta (D4).** Değerden sonraki ayraç içeriği ve `: ` sonrası (bir
+  sonraki `;`'e veya cümle sonu belirtecine kadar) üç sınıftan birine girer:
+  - `annotation`: çekimli fiil ya da atıf sözcüğü yok; koşul, sayı, birim, istatistik
+    (`n`, `SD`, `CI`, `range` …), kısaltma (`e.g.`, `i.e.`, `approx.`) ve kaynak gösterme
+    (`Smith et al.`, `Table 3`, `reference`) dışında içerik sözcüğü de yok → değerin
+    iddiasının parçasıdır (`(in adults)`, `(n = 12, SD 1.1)`, `(Smith et al. [A1])`).
+  - `claim`: `is/are/was/were/has/have/had/can/may/should/…` ya da `see/cf` içerir
+    (`(adverse events are described elsewhere [A2])`, `(rash is common)`, `: adverse
+    events are described …`) → ayrı iddiadır.
+  - `unclear`: geri kalan her şey (`(adverse events described elsewhere [A2])`).
+
+  `claim` ve `unclear` ayracın içindeki belirteçler ile ayraçtan sonra iddianın
+  sonuna kadar gelen belirteçler değere bağlanmaz, `nearby`'da kalır (`(rash is common)
+  [A2]`). İki nokta ayrı bir iddiaya açılıyorsa değerin iddiası `:`'da biter. Cümle
+  sonu belirteci:
+  - önünde `claim` varsa `sentence_other_clause` (bağlanmaz);
+  - `unclear` varsa `sentence_shared` (listede, `stored_reference_attributed=false`;
+    belirsizlik raporlanır).
+
+  Değeri içeren ayraç sınıflanmaz.
+- **İddia sınırı.** Değerin iddiası değerle aynı ayraç düzeyinde biter: `(n = 12,
+  SD 1.1)` içindeki virgül iddiayı bitirmez. Küçük harfle başlayan sonraki cümle
+  bölünmediği için iddia, değerden önceki `. `/`: ` sonrasından başlar ve sonraki
+  `. `'da biter. Kısaltma noktası (`e.g.`, `approx.`, `et al.`, `Fig.`) ve ayraç içi
+  nokta sınır sayılmaz.
+- Bu sürümde API yapısı değişmedi ve yeni gerekçe kodu eklenmedi. Mevcut gerekçeler
+  (`undetermined_statement`, `hypothetical_or_open_question`, `hedged_value`,
+  `subject_unresolved`) ve kapsamlar (`none`, `sentence_other_clause`,
+  `sentence_shared`) kullanılır.
+- Bilinen sınırlar:
+  - Kural listesi dışındaki yöneten fiiller ya da yanlışlama sözcükleri kaçabilir.
+  - Tırnak/çizgi ile ayrılan ara ifadeler (`—`, `–`) boşlanmaz.
+  - `Contrary to the claim that X, it is Y` yalnız `hedged_value` + çelişki verir.
+  - `Patients who did not eat had a Tmax of …` (ilgi cümleciğindeki olumsuzluk) önceki
+    gibi `negated_value` verir (aşırı inceleme).
+  - Kısaltmalı sayfa başlığı (`Pharmacokinetics: the half-life is …`) 8a'daki büyük
+    harfli `Name:` başlığı olarak okunur ve incelemeye düşer.
 
 ## 8c. Sürüm 3 — yeniden denetim (M02-O1-R2) kuralları
 
