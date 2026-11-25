@@ -52,7 +52,7 @@ def _post(client, ids):
     r = client.post(URL, json={"drug_ids": ids}, headers=_auth())
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["schema_version"] == "m02-timing-compare/2" and body["parser_version"] == "m02-text-parser/5"
+    assert body["schema_version"] == "m02-timing-compare/2" and body["parser_version"] == "m02-text-parser/6"
     assert body["timing_advice"]["status"] == "not_evaluated" and body["timing_advice"]["advice"] == []
     return {d["requested_id"]: d for d in body["drugs"]}
 

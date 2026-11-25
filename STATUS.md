@@ -644,6 +644,102 @@ Bilinen sınırlar:
 Geri alma: bu R4 commit'inin revert'i (veri/şema değişikliği yok). Kadir/Halil için ortak
 dosya talebi yok.
 
+#### M02-O1-R5 — Özne ve kaynak sınırları (Astra, denetlenen `91789f3`; teslim, yeniden denetim bekliyor)
+
+Önceki tur (R4, `91789f3`) için CI: çalıştırma 45681604304 başarılı. Katı backend 930 testi
+geçti, atlanan yok; frontend 53 test ve derleme başarılı. Checkout
+`9958b83239c3c3c47418633b2287aec57a75d18c`, dosya ağacı `1ce5c9e9…` (denetçinin log
+doğrulaması). Denetçinin kararı: D1, D2, D5 ve D6 kapalı; D3 ve D4 açık. SDP formu
+(`SDP_Project_Forms_Enhanced_Medikallm.docx.pdf`, 6 Kasım tarihli dosya) R4'teki ile
+aynı; M-02 kısmı her değerin kaynağını ve özgün metnini istiyor, kapsam değişmedi.
+
+Altı bulgu önce `91789f3`'ün ayrı kopyasında (`git archive`, çalışma dalı geri
+alınmadan) yeniden üretildi, sonra düzeltildi. Yol gerçek router → JWT/yetki → servis →
+JSON; yalnız repository okuma sınırı sentetik. Her istekte ikinci kayıt olarak zaman
+alanları boş `[SYNTHETIC] Drug B` gönderildi.
+
+| Örnek (kayıt adı) | `91789f3` (HTTP) | Şimdi (HTTP) |
+|---|---|---|
+| D3-A `For drug b monotherapy, …` (Drug A) | temiz 10 sa, `computed` 50 sa | ölçüm yok, `subject_unresolved`, metin korunuyor |
+| D3-A `In overdose of drug b in adults, …` (Drug A) | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D3-B `The half-life of magnesium is 10 hours.` (magnesium sulfate) | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D3-B `The half-life of magnesium sulfate is 10 hours.` (magnesium) | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D4 `4 hours - 10 patients developed rash [A2]` | `inline=[A2]`, `references=[A2]`, `value_window`, `true` | `inline=[]`, `references=[]`, `nearby=[A2]`, `none`, `false` |
+| D4 aynı cümle, `–` (U+2013) ile | aynı hata | aynı düzeltme |
+
+Olumlu kontroller önce de sonra da temiz:
+- `For drug a monotherapy`, `In overdose of drug a in adults`, `For drug a in overdose`,
+  `The drug's half-life` ve `For oral administration` → 20 sa;
+- `magnesium sulfate` ↔ `magnesium sulfate` ve `drug a hydrochloride` ↔ Drug A → temiz;
+- kayıt adı `sodium chloride` iken `magnesium sulfate` metni → `subject_unresolved` (önce
+  de öyleydi);
+- `4-6 hours`, `4 – 6 hours` ve `4 hours - 6 hours` aralık olarak kalıyor, A1 bağlı;
+- `[A1] — in adults — … [A2]`, `— in adults [A1] — … [A2]`, `(in adults) [A1]` ve
+  `.[A1]` → yalnız A1, A2 `nearby`'da.
+
+Önceden yazılan beklentilerden biri ek bir aşırı reddi gösterdi ve düzeltildi: `The
+elimination half-life of the extended-release form is 4 hours [A1].` önceden
+`subject_unresolved` veriyordu (`form` ad sayılıyordu).
+
+Kök neden ve karar (yalnız `parser.py`): çözülemeyen aday altı yolda sessizce "özne yok"
+ya da "kayıt eşleşti" oluyordu:
+- çerçevede tek ortam sözcüğü;
+- adayın içinde herhangi bir grup adı;
+- adaydaki rakam;
+- küçük harfli yolda kısmi örtüşme;
+- büyük harfli yolda baştan örtüşme;
+- rakamla başlayan her çizgi sonrası parça.
+
+Sözcük listesi büyütmek yerine karar kuralı tek yerde düzeltildi (RULES.md 8f):
+- aday ilk edat koşulundan ya da ilgi cümleciğinden önceki baş öbektir;
+- `ignore` yalnız miktar, metabolit kodu ve son sözcüğü topluluk adı olan öbek içindir,
+  ya da hiç ad sözcüğü kalmadığında;
+- kayıt eşleşmesi yalnız normalize edilmiş adların eşitliğidir; tuz ana adı aynıysa
+  eşittir, ad tuzdan oluşuyorsa tuzlarıyla tam eşitlik gerekir;
+- diğer her aday çözülememiştir → inceleme, 5× yok;
+- çizgi sonrasında süre (sayı + zaman birimi) geliyorsa aralıktır; başka sayılı ifade
+  ayrı iddiadır.
+
+Sürüm: ayrıştırıcı `m02-text-parser/5` → `/6` (davranış değişti). API sözleşmesi
+`m02-timing-compare/2` aynı kaldı (tüketici notu API.md "Ayrıştırıcı 6"). Veri, şema,
+bağımlılık, CI, frontend, `main.py`, ortak fixture, service, calc ve models değişmedi.
+Önceden kaydedilmiş 94 durum değişmeden geçiyor.
+
+Değişen eski beklentiler:
+- Sürüm dizesi: iki entegrasyon testi `/5` → `/6`; `test_m02_audit_r4.py`'deki sürüm
+  kontrolü tam `/5` yerine "en az 5" oldu, tam değeri `test_m02_audit_r5.py` denetliyor.
+- RULES.md 8d/8e'deki kısmi eşleşme, baş öbek atlama ve "rakam gelmiyorsa" cümleleri
+  `[R5: 8f ile değişti]` diye işaretlendi (geçmiş korunuyor).
+- Davranış testleri gevşetilmedi.
+
+Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (22 sentetik metin, HTTP), `91789f3` kopyası → son kod | Önce 6/6 bulgu ve 1 aşırı ret hatalı; sonra 22/22 beklenen |
+| R4 (27), R3 (26), R2 (20), D1–D6 (13) örnekleri, HTTP | Önceki çıktılarla birebir aynı (yalnız ayrıştırıcı sürümü farklı) |
+| Çapraz matris (347 sentetik metin, beklenti çalıştırmadan önce yazıldı) | `91789f3`'te 72 hatalı (35 yabancı özne, 18 kısmi ad, 16 çizgi sonrası iddia, 2 `--` aralık); şimdi 345/347. Kalan 2: `4 hours -- 6 hours` değer ayrıştırmada aralık sayılmıyor (önceki davranış, aşağıda sınırlarda) |
+| Önceki taramalar (R3 75 yoklama, R4 323 yakın örnek, 33 sıradan cümle) | Değişmedi |
+| Yeni testler | `test_m02_audit_r5.py` (özne × 9 koşul × 3 kalıp, kayıt/yabancı; tam/kısmi ad × 3 koşul; 5 çizgi × 4 sayılı iddia; aralıklar; A1/A2; birleşik), `test_m02_audit_r5_http_pg.py` (altı örnek ve olumlu eşleri, HTTP → sentetik PG) |
+| Birim | **850 geçti** |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **1071 geçti, 0 atlandı** (56 sn) |
+| GitHub CI | Son commit için PR sayfasında |
+
+Koşulamayanlar: gerçek PostgreSQL/DrugBank akışı (kurala göre açılmadı). Bağımsız ajan
+taraması kullanım sınırı nedeniyle yapılamadı; yerine 347 metinlik çapraz matris
+kullanıldı.
+
+Bilinen sınırlar:
+- Genel ilaç/marka adı ve kimyasal eşdeğerlik tanıma yoktur: eş ad ya da farklı yazım
+  incelemeye düşer.
+- `4 hours -- 6 hours` iki çelişen değer olarak incelemeye düşer.
+- Kesen edat ve ortam sözcüğü listeleri sınırlıdır; listede olmayan ortam sözcüğü
+  incelemeye düşürür.
+
+Teknik testler uzman kabulü değildir. Klinik değerlendirme, gerçek veri kapsamı, ekran ve
+kaynaklı zaman aralığı tamamlanmış sayılmaz. Teknik yeniden denetimi Astra yapacak.
+Geri alma: bu R5 commit'inin revert'i. Kadir/Halil için ortak dosya talebi yok.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

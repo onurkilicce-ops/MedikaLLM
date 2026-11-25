@@ -53,7 +53,7 @@ Kural: **her dizi alanı her zaman vardır** (boşsa `[]`); bilinmeyen sayı
 ```
 TimingCompareResponse
   schema_version: "m02-timing-compare/2"
-  parser_version: "m02-text-parser/5"
+  parser_version: "m02-text-parser/6"
   drugs: DrugTimingResult[]               # istek sırasıyla
   timing_advice: {status: "not_evaluated", advice: [] , note: str}
   limitations: {code: str, message: str}[]
@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/5",
+  "parser_version": "m02-text-parser/6",
   "drugs": [
     {
       "position": 0,
@@ -181,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/5"
+          "parser_version": "m02-text-parser/6"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -208,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/5"
+          "parser_version": "m02-text-parser/6"
         }
       ],
       "derived": [
@@ -264,7 +264,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   },
   "limitations": [
     {"code": "stored_text_not_reverified", "message": "Values are read from text stored in this database (DrugBank import). ..."},
-    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/5, src/timing/RULES.md). ..."},
+    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/6, src/timing/RULES.md). ..."},
     {"code": "half_life_column_limit", "message": "..."},
     {"code": "general_references_not_linked", "message": "..."},
     {"code": "five_half_lives_is_an_approximation", "message": "..."},
@@ -275,6 +275,22 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   ]
 }
 ```
+
+## Ayrıştırıcı 6 (M02-O1-R5) — tüketiciler için not
+
+Sözleşme `m02-timing-compare/2` aynı kaldı: alan, kapsam değeri ve gerekçe kodu
+eklenmedi. Ayrıştırıcı `m02-text-parser/5` → `/6`. Ayrıntı RULES.md 8f'de.
+
+- Özne kaydı yalnız normalize edilmiş adın kayıt adına **eşit** olmasıyla eşleşir.
+  - Kısmi örtüşme kayıt eşleşmesi değildir: `magnesium` ↔ `magnesium sulfate` ya da
+    tersi. Bu durumda ölçüm ve 5× yoktur, gerekçe `subject_unresolved`'dır.
+  - Tuz ana adı aynı olan biçimler eşleşir: `drug a hydrochloride` ↔ `Drug A`.
+- Ada eklenen koşul ya da grup sözcüğü adı silmez. `For drug b monotherapy, …` ve `In
+  overdose of drug b in adults, …` → `subject_unresolved`; kayıt öznesiyle aynı
+  cümleler temiz kalır.
+- Değerden sonra `-` ya da `–` ile ayrılan sayılı ayrı iddiadaki belirteç bağlanmaz
+  (`4 hours - 10 patients developed rash [A2]` → `nearby=[A2]`, kapsam `none`). Ardından
+  süre gelen çizgi aralık olarak kalır (`4 hours - 6 hours`).
 
 ## Ayrıştırıcı 5 (M02-O1-R4) — tüketiciler için not
 

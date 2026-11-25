@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/5`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/6`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -205,6 +205,73 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
 
+## 8f. Sürüm 6 — beşinci denetim (M02-O1-R5) kuralları: özne karar kuralı
+
+8d ve 8e'deki özne kuralları bu bölümle değiştirildi. Çelişen eski cümleler
+`[R5: 8f ile değişti]` diye işaretlidir. Kök neden: "aday çözülemedi" bilgisi altı yolda
+sessizce "özne yok" ya da "kayıt eşleşti" sonucuna dönüşüyordu:
+- (1) çerçevede tek bir ortam sözcüğü (`monotherapy`) bütün baş öbeği atlatıyordu;
+- (2) adayın herhangi bir yerinde grup adı (`drug b in adults`) adayı yok sayıyordu;
+- (3) rakamlı sözcük (`drug b 10 mg`) adayı yok sayıyordu;
+- (4) küçük harfli yolda adın baştan/sondan kısmi örtüşmesi kayıt sayılıyordu;
+- (5) büyük harfli yolda baştan örtüşme (`Magnesium` / `Magnesium Sulfate`) kayıt
+  sayılıyordu;
+- (6) rakamla başlayan her çizgi sonrası parça aralık sayılıyordu (D4).
+
+**Karar kuralı (her harf büyüklüğünde ve her özne kalıbında aynı):**
+
+1. **Baş öbek.** Aday, ilk edat koşulundan ya da ilgi cümleciğinden önceki baş öbektür.
+   Kesen sözcükler: `in`, `with`, `without`, `after`, `during`, `following`, `at`, `on`,
+   `under`, `before`, `among`, `receiving`, `taking`, `given`, `when`, `if`, `by`, `via`,
+   `from`, `to`, `versus`, `who`, `which`, `that`, `whose`. `of` tutulur (`the metabolite
+   of drug b`). Örnek: `drug b in adults` → `drug b`.
+2. **Özne taşımayan aday (`ignore`), yalnız şu üç durumda:**
+   - aday bir miktardır (rakamla başlar: `4 hours`);
+   - aday bütünüyle bir metabolit kodudur (`M1`);
+   - baş öbeğin son sözcüğü bir topluluk adıdır (`Japanese subjects`, `Patients who …`).
+3. **Ad sözcükleri.** Bunlar atılır: belirleyiciler, genel sözcükler, koşul / grup / tür /
+   metabolit sözcükleri, ortam ve zarf sözcükleri (`monotherapy`, `overdose`, `general`
+   …), ürün/biçim/miktar/yaş sözcükleri (`form`, `dosage`, `mg`, `aged`, `years` …) ve
+   rakamlar. İlaç adından sonraki tek harf ya da sayı kodu adla birleşir (`drug_b`). Hiç ad
+   sözcüğü kalmazsa aday özne taşımaz (`For oral administration,`, `In general,`, `For
+   monotherapy,`, `In children aged 2 to 12 years,`).
+4. **Kayıt eşleşmesi yalnız eşitliktir.** Normalize edilmiş ad, aynı yolla normalize
+   edilmiş kayıt adına eşit olmalıdır.
+   - Tuz sözcükleri atıldıktan sonra ad kalıyorsa karşılaştırma tuzsuzdur. Aynı ana adın
+     tuzu aynı ilaç sayılır: `drug a hydrochloride` ↔ `Drug A`, `drug a sodium` ↔ `drug
+     a`.
+   - Ad tuz sözcüklerinden oluşuyorsa tuzlarla birlikte tam eşitlik gerekir:
+     `magnesium sulfate` ↔ `magnesium sulfate` evet; `magnesium` ↔ `magnesium sulfate`
+     hayır; `magnesium sulfate` ↔ `magnesium` hayır.
+   - Baştan/sondan kısmi örtüşme (`acid` / `valproic acid`, `drug a b` / `drug a`) eşleşme
+     değildir.
+   - Büyük harfli adlar (8a/8b) da aynı kuralla karar verir.
+5. **Diğer her aday çözülememiştir.** Ölçüm yok (gerekçe `subject_unresolved` ya da büyük
+   harfli adda `subject_not_record_drug`), ≈5× yok; metin inceleme kaleminde korunur.
+6. **Bağlam yedeği.** Önce değerin penceresi okunur. Pencerede özne yoksa ve ölçüm sözcüğü
+   de yoksa cümlede önceki özne geçerlidir (8d).
+
+Bu kuralın sonucu: aynı yabancı özneye koşul (`monotherapy`, `in adults`, `in overdose in
+adults`, `10 mg`, `extended-release tablets` …) eklemek ya da silmek sonucu temize
+çeviremez. Aynı koşulla kayıt öznesi temiz kalır.
+
+**Çizgi ve aralık (D4).** 8e'deki çizgiler (`-`, `–`, `—`, `--`) bir çizgi
+ayırıcısıdır; ardından bir süre (sayı + zaman birimi) geliyorsa iki süreyi bağladığı
+kabul edilir ve ayırıcı sayılmaz (`4 hours - 6 hours`, `4 – 6 hours` aralıktır). Ardından
+süre olmayan sayılı bir ifade gelirse (`- 10 patients developed rash [A2]`, `– 10% of
+patients …`) ayrı iddiadır: belirteç bağlanmaz, `nearby`'da kalır, kapsam `none` olur.
+Sözcük içi tire (`half-life`, `extended-release`) ayırıcı değildir. İki nokta aralık
+olamaz.
+
+**Bilinen sınırlar:**
+- Genel ilaç/marka adı ve kimyasal eşdeğerlik tanıma yoktur: kayıt adının farklı yazımı
+  ya da eş adı incelemeye düşer (aşırı inceleme, yanlış temiz yok).
+- `4 hours -- 6 hours` değer ayrıştırmada aralık değildir (önceki davranış): iki çelişen
+  değer olarak incelemeye düşer, A1 yalnız ikinci değere bağlanır.
+- Kesen edat ve sözcük listeleri sınırlıdır. Listede olmayan bir ortam sözcüğü ad
+  sayılır; kayıtla eşleşmezse ölçüm incelemeye düşer.
+- API yapısı değişmedi ve yeni gerekçe kodu yok.
+
 ## 8e. Sürüm 5 — dördüncü denetim (M02-O1-R4) kuralları
 
 - **Temizleme kayıt eşleşmesi değildir (D3).** Özne adayı, 8d'de anlatılan kalıntı ada iki
@@ -226,6 +293,7 @@ ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
   olur (`In overdose of drug b,` → `drug b`). Durum sözcükleri: `overdose`, `intoxication`,
   `poisoning`, `use`, `administration`, `treatment`, `therapy`, `infusion`, `dosing`.
   Zarf/ortam listesi (8d) artık yalnız baş öbeğe uygulanır, bütün çerçeveyi atlamaz.
+  [R5: 8f ile değişti — ortam sözcüğü baş öbeği atlatmaz, yalnız ad kalıntısından atılır.]
 - **`half-life of X` sınırı (D3).** Adayı bitiren sözcük (`is`, `in`, `at` …) bütün bir
   sözcük olmalıdır; önceden `sulfate` içindeki `at`'ta kesiliyordu. Aday en çok 6 sözcük
   olabilir (`drug b hydrochloride extended-release tablets`).
@@ -234,7 +302,8 @@ ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
   - `—` (boşluklu ya da boşluksuz);
   - boşluklu `–`;
   - `--`;
-  - boşluklu `-`, ardından rakam gelmiyorsa.
+  - boşluklu `-`, ardından rakam gelmiyorsa. [R5: 8f ile değişti — ölçüt artık "ardından
+    süre gelmiyorsa"; `- 10 patients …` ayırıcıdır.]
 
   Her parça 8d'deki gibi `annotation` / `claim` / `unclear` olarak sınıflanır. İlk
   `annotation` olmayan parça değerin iddiasını bitirir. O parçadaki belirteç
@@ -315,7 +384,8 @@ taramasında yürütülerek yeniden üretilen yollar bu kurallarla kapatıldı.
   - Kalıntı boşsa (`the drug's`, `In general,`, `For oral administration,`, `Japanese
     subjects`) özne değildir.
   - Kalıntı kayıt adına eşit ise ya da kayıt adıyla başlıyor/bitiyorsa kayıttır
-    (`drug a hydrochloride`, `valproic acid` için `acid's`).
+    (`drug a hydrochloride`, `valproic acid` için `acid's`). [R5: 8f ile değişti — yalnız
+    eşitlik; kısmi örtüşme (`acid's`) çözülemedi sayılır.]
   - Diğer kalıntı yabancıdır → ölçüm yok, `subject_unresolved`.
   - Çoğul ilaç adı (`the two drugs'`) ya da başka ürün işaretli ilaç adı (`comparator
     drug`, `reference product`, `concomitant medication` …) her zaman yabancıdır.

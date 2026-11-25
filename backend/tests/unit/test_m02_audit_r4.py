@@ -35,7 +35,7 @@ def _derived(fp):
 
 
 def test_parser_version_bumped_for_behaviour_change():
-    assert PARSER_VERSION == "m02-text-parser/5"
+    assert PARSER_VERSION.startswith("m02-text-parser/") and int(PARSER_VERSION.rsplit("/", 1)[1]) >= 5
 
 
 # ------------------------------------------------------------------ D3 --

@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/5"
+PARSER_VERSION = "m02-text-parser/6"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -388,7 +388,7 @@ _SUBJECT_REACHES = re.compile(
     re.I)
 _SUBJECT_FRAME = re.compile(
     r"(?:^\s*(?:\[[^\]]*\]\s*)?|[.;:,]\s*|\b(?:and|but|while|whereas)\s+)(?:for|in)\s+"
-    r"((?:[\w-]+\s+){0,9}[\w-]+)\s*,", re.I)
+    r"((?:[\w-]+\s+){0,14}[\w-]+)\s*,", re.I)
 _FRAME_PREPOSITION = re.compile(
     r"\s+(?:in|with|without|after|during|following|at|on|under|before|among|receiving|taking|given|when|if"
     r"|by|via|from|to|of)\s+", re.I)
@@ -445,14 +445,32 @@ def _subject_residual(phrase: str, drop_salts: bool = True) -> List[str]:
             chars[i] = " "
     words = re.findall(r"[\w-]+", "".join(chars))
     return [w for w in words if w not in _GENERIC_SUBJECT and (w not in _SALT or not drop_salts)
-            and w not in _FRAME_NOT_SUBJECT
+            and w not in _FRAME_NOT_SUBJECT and w not in _DESCRIPTOR_WORD
             and w not in _DETERMINER and not w.startswith("_") and not w.endswith("_")
-            and not re.fullmatch(r"[a-z]{1,3}-?\d+[a-z]?", w)]
+            and not w[0].isdigit() and not re.fullmatch(r"[a-z]{1,3}-?\d+[a-z]?", w)]
+
+
+# R5 (M02-D3): words that describe a product, an amount or a dosage form, not
+# a name ('the extended-release form', 'drug b 10 mg').
+_DESCRIPTOR_WORD = {"form", "forms", "dosage", "preparation", "preparations", "presentation", "strength",
+                    "mg", "g", "mcg", "ug", "µg", "ml", "l", "kg", "iu", "units", "unit", "mmol", "dose", "doses",
+                    "aged", "age", "ages", "years", "year", "months", "month", "weeks", "week", "days", "day", "old",
+                    "hours", "hour", "h", "hr", "hrs", "min", "minutes"}
+# R5: the head of a candidate ends before a prepositional condition ('drug b in
+# adults' -> 'drug b'); 'of' is kept ('the metabolite of drug b').
+_CANDIDATE_TAIL = re.compile(
+    r"\s+(?:in|with|without|after|during|following|at|on|under|before|among|receiving|taking|given|when|if"
+    r"|by|via|from|to|versus|vs|who|which|that|whose)\b.*$", re.I)
 
 
 def _same_name(phrase: str, known: Sequence[str]) -> bool:
-    return any(n and (phrase == n or phrase.startswith(n + " ") or n.startswith(phrase + " ")
-                      or n.endswith(" " + phrase) or phrase.endswith(" " + n)) for n in known)
+    """R5 (M02-D3): the normalized name must EQUAL the normalized record name.
+    A partial overlap ('magnesium' / 'magnesium sulfate', 'acid' / 'valproic
+    acid') is not a match: it stays unresolved and goes to review. The only
+    normalizations are the ones in _subject_residual (determiners, generic,
+    condition/group/form words, a code joined to a drug noun, salt words while a
+    base name remains) and the candidate head (_CANDIDATE_TAIL)."""
+    return bool(phrase) and any(n and phrase == n for n in known)
 
 
 def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] = ()) -> str:
@@ -463,11 +481,15 @@ def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] 
     when it equals the record name with the salt words kept, otherwise foreign.
     'ignore' is left for candidates without any name word (generic words,
     conditions, groups, species, metabolites)."""
+    # R5: a condition after the name does not erase it ('drug b in adults' ->
+    # 'drug b'); only a quantity, a whole metabolite code, or a phrase whose
+    # head noun is a population ('Japanese subjects') carries no subject.
+    cand = _CANDIDATE_TAIL.sub("", cand.strip())
     low = cand.lower()
     words = re.findall(r"[\w-]+", low)
-    if not words or any(w[0].isdigit() for w in words):
-        return "ignore"
-    if _METABOLITE_CODE.match(cand.strip()) or _POPULATION_NOUN.search(low):
+    if not words or words[0][0].isdigit():
+        return "ignore"  # a quantity ('4 hours')
+    if _METABOLITE_CODE.match(cand.strip()) or _POPULATION_NOUN.fullmatch(words[-1]):
         return "ignore"  # 'M1', 'Japanese subjects'
     if any(w in _PLURAL_DRUG_NOUN for w in words):
         return "foreign"  # several products, not only the record drug
@@ -505,9 +527,10 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
         if sit:
             heads.append(sit.group(1))
         for h in heads:
-            hw = re.findall(r"[\w-]+", h.lower())
-            if not hw or any(w in _FRAME_NOT_SUBJECT for w in hw):
-                continue  # an adverbial or a setting ('In general,', 'For oral administration,')
+            # R5: a setting word no longer drops the whole head ('For drug b
+            # monotherapy,'); the head is judged and setting words are removed
+            # from its residual name ('In general,' / 'For oral administration,'
+            # leave no name word and are ignored there).
             for part in re.split(r"\s*,\s*|\s+(?:and|or)\s+", h):
                 if part.strip():
                     out.append((x.start(), part))
@@ -879,8 +902,20 @@ def _condition_spans(text: str) -> List[Span]:
 
 # R4 (M02-D4): separators of a statement aside. Not a hyphen inside a word
 # ('half-life', 'extended-release') and not a numeric range ('4-6', '4 – 6').
-_ASIDE_SEPARATOR = re.compile(r":(?=\s)|\s*—\s*|\s+–\s+(?!\d)|\s*--\s*|\s+-\s+(?!\d)")
-_CLAIM_BREAK = re.compile(r"[.!?:](?=\s)|—|\s–\s(?!\d)|--|\s-\s(?!\d)")
+# R5 (M02-D4): a spaced '-' / '–' followed by a number is a range only when a
+# duration starts right after it ('4 hours - 6 hours'); '4 hours - 10 patients
+# developed rash' is a separate statement (_dash_starts_duration).
+_ASIDE_SEPARATOR = re.compile(r":(?=\s)|\s*—\s*|\s+–\s+|\s*--\s*|\s+-\s+")
+_CLAIM_BREAK = re.compile(r"[.!?:](?=\s)|—|\s–\s|--|\s-\s")
+
+
+def _dash_starts_duration(text: str, sep: re.Match) -> bool:
+    """True for a dash separator ('-', '–', '—', '--') directly followed by a
+    duration (number + time unit): that dash joins two durations, it does not
+    start a separate claim. A colon is never a range."""
+    if sep.group(0).strip() not in ("-", "–", "—", "--"):
+        return False
+    return bool(DURATION_RE.match(text, sep.end()))
 _SENTENCE_STOP = re.compile(r"[.!?](?=\s)")
 _FINITE_WORD = re.compile(
     r"\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|should|shall|do|does|did|see|cf)\b",
@@ -1227,7 +1262,12 @@ def _subject_verdict(names: Optional[Sequence[str]], candidate: str, following: 
         return "code"
     low = head.lower()
     known = [n for n in (_strip_tags(x) for x in names) if n]
-    if any(low == n or low.startswith(n + " ") or n.startswith(low + " ") for n in known):
+    # R5 (M02-D3): equality after the same normalization as the lower-case
+    # path ('Drug A ER', 'Drug A Hydrochloride' -> record); a prefix overlap
+    # ('Magnesium' for 'Magnesium Sulfate') is no longer a match.
+    known_res = [" ".join(_subject_residual(n)) for n in known]
+    known_salted = [" ".join(_subject_residual(n, drop_salts=False)) for n in known]
+    if low in known or _judge_subject(head, known_res, known_salted) == "record":
         return "record"
     return "foreign"
 
@@ -1630,7 +1670,7 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # lower-case next sentence is not split by split_sentences); not an
             # abbreviation ('e.g.', 'approx.', 'et al.') and not inside brackets.
             breaks = [x.end() for x in _CLAIM_BREAK.finditer(stext, win.start, m.start())
-                      if _real_break(stext, x.start(), depth)]
+                      if _real_break(stext, x.start(), depth) and not _dash_starts_duration(stext, x)]
             if breaks:
                 claim_start = max(claim_start, breaks[-1])
             # the claim ends at the next clause start / sentence stop on the
@@ -1672,7 +1712,8 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # value is classified; the first non-annotation segment ends the
             # value's claim ('4 hours — adverse events are described elsewhere
             # [A2]'), an annotation segment ('— in adults —') stays in it.
-            seps = [x for x in _ASIDE_SEPARATOR.finditer(stext, m.end(), trailing_start) if depth[x.start()] == 0]
+            seps = [x for x in _ASIDE_SEPARATOR.finditer(stext, m.end(), trailing_start)
+                    if depth[x.start()] == 0 and not _dash_starts_duration(stext, x)]
             for si, sep_m in enumerate(seps):
                 seg_end = seps[si + 1].start() if si + 1 < len(seps) else trailing_start
                 semi = stext.find(";", sep_m.end(), seg_end)
