@@ -562,6 +562,88 @@ Kadir/Halil için: C1, ajan, frontend ve ortak dosyalar değişmedi; ortak dosya
 M-02 tüketicisi `sentence_shared` / `sentence_other_clause` belirteçlerini "değerin
 kaynağı" diye göstermemeli.
 
+#### M02-O1-R4 — Kalan iki bulgu (Astra, denetlenen `d18b591`; teslim, yeniden denetim bekliyor)
+
+Önceki tur (R3, `d18b591`) için CI: çalıştırma 45675916399 başarılı. Katı backend 867 testi
+geçti, atlanan yok; frontend 53 test ve derleme başarılı. Gerçek checkout
+`b4539bf489ba8eecdf3f11f88b16b08998609e80`, dosya ağacı `e8bb2f41…` (denetçinin doğrulaması).
+Denetçinin kararı: D1, D2, D5 ve D6 kapalı. Açık kalanlar D3 (temizleme özneyi siliyor) ve
+D4 (uzun çizgide atıf).
+
+Üç bulgu önce `d18b591`'de yeniden üretildi, sonra düzeltildi. Yol gerçek router →
+JWT/yetki → servis → JSON; yalnız repository okuma sınırı sentetik. Her istekte iki kayıt
+gönderildi: `[SYNTHETIC] Drug A` ve zaman alanları boş `[SYNTHETIC] Drug B`. Saklı
+referanslar A1/A2.
+
+| Örnek | `d18b591` (HTTP) | Şimdi (HTTP) |
+|---|---|---|
+| D3 `The half-life of magnesium sulfate is 10 hours.` | Drug A altında temiz 10 sa, `computed` 50 sa | ölçüm yok, `subject_unresolved`, metin korunuyor |
+| D3 `For drug b in overdose, the half-life is 10 hours.` | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| D4 `The half-life is 4 hours — adverse events are described elsewhere [A2].` | `inline=[A2]`, `references=[A2]`, `value_window`, `true` | `inline=[]`, `references=[]`, `nearby=[A2]`, `none`, `false` |
+
+Yakın örnekler de `d18b591`'de hatalıydı, şimdi düzeltildi:
+- `For drug b in patients with renal impairment,`, `For drug b hydrochloride in
+  overdose,`, `In overdose of drug b,` ve `The half-life of sodium chloride …` → Drug A
+  altında temiz 10 sa idi;
+- `–`, `--` ve ` - ` çizgileri ile `— … —` arasındaki iddia → A2 kesin bağlanıyordu.
+
+Olumlu kontroller önce de sonra da temiz ve aynı:
+- `For drug a in overdose`, `For drug a hydrochloride`, `The drug's half-life` → 20 sa;
+- sentetik kayıt adı `magnesium sulfate` iken `The half-life of magnesium sulfate …` →
+  temiz;
+- `4 hours.[A1]`, `4 hours [A1] (… [A2])` ve `4 hours (in adults) [A1]` → yalnız A1;
+- `4-6 hours [A1]` ve `extended-release` → A1 korunuyor.
+
+Kök neden ve karar (en küçük değişiklik, yalnız `parser.py`):
+- (1) D3 temizleme: tuz atılınca boşalan aday "kayıt" sayılıyordu. Aday artık tuzlu ve
+  tuzsuz kalıntıyla değerlendiriliyor. Boşalma kayıt eşleşmesi sayılmıyor; yalnız ad
+  sözcüğü içermeyen aday `ignore` oluyor. Tuz adlı madde yalnız kayıt adına eşitse kayıt
+  sayılıyor.
+- (2) D3 çerçeve: tek bir ortam sözcüğü (`overdose`) bütün `For …,` öbeğini atlatıyordu.
+  Artık yalnız ilk edattan önceki baş öbek ve durum sözcüğünün `of` tümleci aday oluyor.
+- (3) Aynı incelemede bulunan kök neden: `half-life of X` adayı sözcük ortasında
+  kesiliyordu (`sulf|ate` → `at`). Bitiren sözcük artık bütün sözcük, en çok 6 sözcük.
+- (4) D4: çizgiler 8d'deki iki nokta kuralına katıldı. İlk `annotation` olmayan parça
+  iddiayı bitiriyor; değerden önceki çizgi de önceki iddiayı bitiriyor. Sözcük içi tire ve
+  sayısal aralık hariç.
+
+Ayrıntı RULES.md 8e'de.
+
+Sürüm: ayrıştırıcı `m02-text-parser/4` → `/5` (davranış değişti). API sözleşmesi
+`m02-timing-compare/2` aynı kaldı (tüketici notu API.md "Ayrıştırıcı 5"). Veri, şema,
+bağımlılık, CI, frontend, `main.py` ve ortak fixture değişmedi. Önceden kaydedilmiş 94 durum
+değişmeden geçiyor.
+
+Değişen eski beklentiler: yalnız sürüm dizesi. İki entegrasyon testi `/4` → `/5`;
+`test_m02_audit_r3.py`'deki sürüm kontrolü tam `/4` yerine "en az 4" oldu, tam değeri
+`test_m02_audit_r4.py` denetliyor.
+
+Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (27 sentetik metin, HTTP) `d18b591` → son kod | Önce 3/3 bulgu ve 7 yakın örnek hatalı; sonra 27/27 beklenen |
+| R3 (26), R2 (20) ve D1–D6 (13) örnekleri, HTTP | Önceki çıktılarla birebir aynı (yalnız ayrıştırıcı sürümü farklı) |
+| R4 yakın tarama (323 sentetik metin) | 323/323 beklenen. Yabancı öznelere 8 koşul eklenip çıkarıldı, kayıt adı ve tuzlu kayıt adı denendi, 6 çizgi türü × 4 iddia; A1 korunuyor; aralık ve tire değişmiyor |
+| R3 çürütme yoklamaları (75) ve sıradan cümleler (33) | Değişmedi (75/75; 31/33, 2'si önceki kural gereği işaretli) |
+| Yeni testler | `test_m02_audit_r4.py` (D3/D4 olumlu / olumsuz / yakın / birleşik, koşul ekle-çıkar, çizgi türleri), `test_m02_audit_r4_http_pg.py` (HTTP → sentetik PG, iki kayıtlı istek; inline/nearby/references/scope/attributed birlikte) |
+| Birim | **712 geçti** |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **930 geçti, 0 atlandı** (55 sn); takılma tekrarlanmadı |
+| GitHub CI | Son commit için PR sayfasında |
+
+Koşulamayanlar: gerçek PostgreSQL/DrugBank akışı (kurala göre açılmadı). İkinci bağımsız ajan
+taraması kullanım sınırı nedeniyle yapılamadı; yerine yürütülen 323 metinlik yakın tarama
+kullanıldı. Uzman kabulü yok.
+
+Bilinen sınırlar:
+- Genel ilaç/marka adı tanıma yoktur.
+- Tuz listesi sınırlıdır.
+- Çerçevede `of` tümleci yalnız durum sözcüklerinden sonra okunur.
+- D1 ara ifade kuralı çizgili ara ifadeye uygulanmaz.
+
+Geri alma: bu R4 commit'inin revert'i (veri/şema değişikliği yok). Kadir/Halil için ortak
+dosya talebi yok.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

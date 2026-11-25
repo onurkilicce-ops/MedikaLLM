@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/4`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/5`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -204,6 +204,53 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 `unparsed_needs_review` ölçüm yok, inceleme kalemi var (veya yarılanma ömrü
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
+
+## 8e. Sürüm 5 — dördüncü denetim (M02-O1-R4) kuralları
+
+- **Temizleme kayıt eşleşmesi değildir (D3).** Özne adayı, 8d'de anlatılan kalıntı ada iki
+  kez indirgenir:
+  - tuz sözcükleri atılarak;
+  - tuz sözcükleri tutularak.
+
+  Yalnız belirleyici, genel sözcük, koşul, grup, tür ya da metabolit sözcüğünden oluşan
+  aday (`the drug's`, `For oral administration,`, `In overdose,`) özne taşımaz (`ignore`).
+  Tuzlar atılınca boşalan ama tuzlarla birlikte ad kalan aday (`magnesium sulfate`,
+  `sodium chloride`) bir maddeyi adlandırır. Böyle bir aday yalnız tuzlarıyla birlikte
+  kayıt adına eşitse kayıt ilacıdır (sentetik kayıt adı `magnesium sulfate`); değilse
+  yabancıdır → ölçüm yok, `subject_unresolved`. Tuz atıldıktan sonra ad kalan aday
+  (`drug a hydrochloride` → `drug_a`) önceki gibi karşılaştırılır.
+- **Çerçevede koşul özneyi silmez (D3).** `For|In <en çok 10 sözcük>,` çerçevesinde
+  yalnız ilk edattan (`in`, `with`, `after`, `during`, `at`, `on`, `under`, `among`,
+  `receiving`, `taking`, `given`, `by`, `via`, `from`, `to`, `of` …) önceki baş öbek aday
+  olur (`For drug b in overdose,` → `drug b`). Bir durum sözcüğünün `of` tümleci de aday
+  olur (`In overdose of drug b,` → `drug b`). Durum sözcükleri: `overdose`, `intoxication`,
+  `poisoning`, `use`, `administration`, `treatment`, `therapy`, `infusion`, `dosing`.
+  Zarf/ortam listesi (8d) artık yalnız baş öbeğe uygulanır, bütün çerçeveyi atlamaz.
+- **`half-life of X` sınırı (D3).** Adayı bitiren sözcük (`is`, `in`, `at` …) bütün bir
+  sözcük olmalıdır; önceden `sulfate` içindeki `at`'ta kesiliyordu. Aday en çok 6 sözcük
+  olabilir (`drug b hydrochloride extended-release tablets`).
+- **Çizgi (D4).** Değerden sonra en üst düzeyde gelen aşağıdaki çizgiler iki nokta gibi
+  okunur:
+  - `—` (boşluklu ya da boşluksuz);
+  - boşluklu `–`;
+  - `--`;
+  - boşluklu `-`, ardından rakam gelmiyorsa.
+
+  Her parça 8d'deki gibi `annotation` / `claim` / `unclear` olarak sınıflanır. İlk
+  `annotation` olmayan parça değerin iddiasını bitirir. O parçadaki belirteç
+  `inline_reference_tokens`'a ve `references`'a girmez, yalnız `nearby`'dadır; kapsam
+  `none` olur. Ardından gelen cümle sonu belirteci `sentence_other_clause` (`claim`) ya
+  da `sentence_shared` (`unclear`) olur. `— in adults —` gibi bir `annotation` parçası
+  iddiada kalır. Değerden önceki aynı çizgiler de önceki iddiayı bitirir.
+- **Çizgi sayılmayanlar.** Sözcük içi tire (`half-life`, `extended-release`) ve sayısal
+  aralık (`4-6`, `4 – 6`, `4 - 6`) çizgi sayılmaz.
+- API yapısı değişmedi ve yeni gerekçe kodu ya da kapsam değeri eklenmedi.
+- Bilinen sınırlar:
+  - Genel ilaç adı ve marka tanıma yoktur.
+  - Tuz listesi sınırlıdır: listede olmayan tuz sözcüğü (`heptahydrate`) ad sayılır,
+    kayıt adıyla eşleşmezse incelemeye düşer.
+  - Çerçevenin `of` tümleci yalnız yukarıdaki durum sözcüklerinden sonra okunur.
+  - D1 ara ifade boşlama kuralları çizgili ara ifadeye uygulanmaz.
 
 ## 8d. Sürüm 4 — üçüncü denetim (M02-O1-R3) kuralları
 

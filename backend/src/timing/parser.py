@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/4"
+PARSER_VERSION = "m02-text-parser/5"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -345,8 +345,9 @@ _GOVERNING_HEDGE = re.compile(
 # do not form a subject.
 _SUBJECT_OF = re.compile(
     r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})\s+(?:of|for)\s+"
-    r"((?:[\w-]+\s+){0,3}?[\w-]+)(?=\s*(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
-    r"|after|following|of|for|with|when|on|was|[,;:(]|$))", re.I)
+    # R4: the stop word must be a whole word ('sulfate' does not stop at 'at')
+    r"((?:[\w-]+\s+){0,5}?[\w-]+)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
+    r"|after|following|of|for|with|when|on|was)\b|\s*[,;:(]|\s*$)", re.I)
 _SUBJECT_HAS = re.compile(
     r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+\s+){0,4}[\w-]+)\s+"
     r"(?:has|have|had|exhibits?|shows?"
@@ -387,7 +388,13 @@ _SUBJECT_REACHES = re.compile(
     re.I)
 _SUBJECT_FRAME = re.compile(
     r"(?:^\s*(?:\[[^\]]*\]\s*)?|[.;:,]\s*|\b(?:and|but|while|whereas)\s+)(?:for|in)\s+"
-    r"((?:[\w-]+\s+){0,4}[\w-]+)\s*,", re.I)
+    r"((?:[\w-]+\s+){0,9}[\w-]+)\s*,", re.I)
+_FRAME_PREPOSITION = re.compile(
+    r"\s+(?:in|with|without|after|during|following|at|on|under|before|among|receiving|taking|given|when|if"
+    r"|by|via|from|to|of)\s+", re.I)
+_FRAME_SITUATION_OF = re.compile(
+    r"\b(?:overdose|overdosage|intoxication|poisoning|use|administration|treatment|therapy|infusion|dosing)"
+    r"\s+of\s+((?:[\w-]+\s+){0,3}[\w-]+)", re.I)
 _FRAME_NOT_SUBJECT = {
     "general", "summary", "practice", "addition", "particular", "contrast", "example", "instance", "short",
     "conclusion", "comparison", "case", "cases", "study", "studies", "trial", "trials", "state", "states", "vivo",
@@ -423,7 +430,10 @@ def _join_codes(text: str) -> str:
     return _CODE_AFTER_NOUN.sub(lambda x: f"{x.group(1)}_{x.group(2)}", text)
 
 
-def _subject_residual(phrase: str) -> List[str]:
+def _subject_residual(phrase: str, drop_salts: bool = True) -> List[str]:
+    """Name words of a subject phrase: determiners, generic words, condition /
+    group / metabolite / species words (and, with ``drop_salts``, salt words)
+    removed. R4: callers must not read an empty result as 'the record drug'."""
     low = _join_codes(phrase.lower())
     chars = list(low)
     # condition terms are read on the original case too ('ER tablets')
@@ -434,13 +444,25 @@ def _subject_residual(phrase: str) -> List[str]:
         for i in range(s.start, s.end):
             chars[i] = " "
     words = re.findall(r"[\w-]+", "".join(chars))
-    return [w for w in words if w not in _GENERIC_SUBJECT and w not in _SALT and w not in _FRAME_NOT_SUBJECT
+    return [w for w in words if w not in _GENERIC_SUBJECT and (w not in _SALT or not drop_salts)
+            and w not in _FRAME_NOT_SUBJECT
             and w not in _DETERMINER and not w.startswith("_") and not w.endswith("_")
             and not re.fullmatch(r"[a-z]{1,3}-?\d+[a-z]?", w)]
 
 
-def _judge_subject(cand: str, known: Sequence[str]) -> str:
-    """'record' | 'foreign' | 'ignore' for one subject candidate (any case)."""
+def _same_name(phrase: str, known: Sequence[str]) -> bool:
+    return any(n and (phrase == n or phrase.startswith(n + " ") or n.startswith(phrase + " ")
+                      or n.endswith(" " + phrase) or phrase.endswith(" " + n)) for n in known)
+
+
+def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] = ()) -> str:
+    """'record' | 'foreign' | 'ignore' for one subject candidate (any case).
+
+    R4 (M02-D3): a candidate that becomes empty only after its salt words are
+    removed names a substance ('magnesium sulfate'): it is the record drug only
+    when it equals the record name with the salt words kept, otherwise foreign.
+    'ignore' is left for candidates without any name word (generic words,
+    conditions, groups, species, metabolites)."""
     low = cand.lower()
     words = re.findall(r"[\w-]+", low)
     if not words or any(w[0].isdigit() for w in words):
@@ -452,14 +474,12 @@ def _judge_subject(cand: str, known: Sequence[str]) -> str:
     if any(w in _OTHER_PRODUCT for w in words) and re.search(rf"\b{_DRUG_NOUN}\b", low):
         return "foreign"  # 'the comparator drug', 'the reference product'
     res = _subject_residual(cand)
-    if not res:
-        return "ignore"
-    phrase = " ".join(res)
-    for n in known:
-        if n and (phrase == n or phrase.startswith(n + " ") or n.startswith(phrase + " ")
-                  or n.endswith(" " + phrase) or phrase.endswith(" " + n)):
-            return "record"
-    return "foreign"
+    if res:
+        return "record" if _same_name(" ".join(res), known) else "foreign"
+    salted = _subject_residual(cand, drop_salts=False)
+    if not salted:
+        return "ignore"  # no name word at all ('the drug', 'oral administration')
+    return "record" if _same_name(" ".join(salted), known_salted) else "foreign"
 
 
 def _subject_candidates(before: str, after: str = "") -> List[str]:
@@ -474,12 +494,23 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
             if words[cut:]:
                 out.append((x.start(), " ".join(words[cut:]).replace("_", " ")))
     for x in _SUBJECT_FRAME.finditer(before):
-        words = re.findall(r"[\w-]+", x.group(1).lower())
-        if any(w in _FRAME_NOT_SUBJECT for w in words):
-            continue  # an adverbial or a setting ('In general,', 'For oral administration,')
-        for part in re.split(r"\s*,\s*|\s+(?:and|or)\s+", x.group(1)):
-            if part.strip():
-                out.append((x.start(), part))
+        # R4 (M02-D3): a condition after the head does not hide the subject
+        # ('For drug b in overdose,' -> 'drug b'); only the head (before the
+        # first preposition) is the candidate, plus the 'of' complement of a
+        # situation word ('In overdose of drug b,' -> 'drug b').
+        phrase = x.group(1)
+        head = _FRAME_PREPOSITION.split(phrase, maxsplit=1)[0]
+        heads = [head]
+        sit = _FRAME_SITUATION_OF.search(phrase)
+        if sit:
+            heads.append(sit.group(1))
+        for h in heads:
+            hw = re.findall(r"[\w-]+", h.lower())
+            if not hw or any(w in _FRAME_NOT_SUBJECT for w in hw):
+                continue  # an adverbial or a setting ('In general,', 'For oral administration,')
+            for part in re.split(r"\s*,\s*|\s+(?:and|or)\s+", h):
+                if part.strip():
+                    out.append((x.start(), part))
     m = re.match(r"^\s*(?:\([^)]*\)\s*)?(?:for|of)\s+((?:[\w-]+\s+){0,2}[\w-]+)", after, re.I)
     if m:
         out.append((len(before), m.group(1)))
@@ -491,13 +522,17 @@ def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, 
     The value's window is judged first; when it names no subject, the nearest
     subject earlier in the sentence governs ('drug b's half-life is 8 hours in
     adults and 12 hours in children')."""
-    known = [" ".join(_subject_residual(n)) for n in (_strip_tags(x) for x in names) if n]
-    verdicts = [v for v in (_judge_subject(c, known) for c in _subject_candidates(before, after)) if v != "ignore"]
+    plain = [n for n in (_strip_tags(x) for x in names) if n]
+    known = [" ".join(_subject_residual(n)) for n in plain]
+    known_salted = [" ".join(_subject_residual(n, drop_salts=False)) for n in plain]
+    verdicts = [v for v in (_judge_subject(c, known, known_salted) for c in _subject_candidates(before, after))
+                if v != "ignore"]
     if verdicts:
         return "foreign" in verdicts
     if re.search(_KW_POSS, before):
         return False  # the value has its own (generic) subject: 'and the half-life is 4 hours'
-    earlier = [v for v in (_judge_subject(c, known) for c in _subject_candidates(sentence_before)) if v != "ignore"]
+    earlier = [v for v in (_judge_subject(c, known, known_salted) for c in _subject_candidates(sentence_before))
+               if v != "ignore"]
     return bool(earlier) and earlier[-1] == "foreign"
 
 
@@ -842,7 +877,10 @@ def _condition_spans(text: str) -> List[Span]:
     return spans
 
 
-_CLAIM_BREAK = re.compile(r"[.!?:](?=\s)")
+# R4 (M02-D4): separators of a statement aside. Not a hyphen inside a word
+# ('half-life', 'extended-release') and not a numeric range ('4-6', '4 – 6').
+_ASIDE_SEPARATOR = re.compile(r":(?=\s)|\s*—\s*|\s+–\s+(?!\d)|\s*--\s*|\s+-\s+(?!\d)")
+_CLAIM_BREAK = re.compile(r"[.!?:](?=\s)|—|\s–\s(?!\d)|--|\s-\s(?!\d)")
 _SENTENCE_STOP = re.compile(r"[.!?](?=\s)")
 _FINITE_WORD = re.compile(
     r"\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|should|shall|do|does|did|see|cf)\b",
@@ -1629,14 +1667,20 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
                         for i in range(p, stop):
                             claim_chars[i] = " "
                 p = stext.find("(", max(close, p + 1))
-            colon = next((x for x in re.finditer(r":(?=\s)", stext[:trailing_start])
-                          if x.start() >= m.end() and depth[x.start()] == 0), None)
-            if colon is not None:
-                semi = stext.find(";", colon.end(), trailing_start)
-                kind = _aside_kind(stext[colon.end():semi if semi >= 0 else trailing_start])
+            # R4 (M02-D4): a dash ('—', spaced '–', '--', spaced '-' not before a
+            # digit) is read like the colon: each top-level segment after the
+            # value is classified; the first non-annotation segment ends the
+            # value's claim ('4 hours — adverse events are described elsewhere
+            # [A2]'), an annotation segment ('— in adults —') stays in it.
+            seps = [x for x in _ASIDE_SEPARATOR.finditer(stext, m.end(), trailing_start) if depth[x.start()] == 0]
+            for si, sep_m in enumerate(seps):
+                seg_end = seps[si + 1].start() if si + 1 < len(seps) else trailing_start
+                semi = stext.find(";", sep_m.end(), seg_end)
+                kind = _aside_kind(stext[sep_m.end():semi if semi >= 0 else seg_end])
                 if kind != "annotation":
                     aside_kinds.append(kind)
-                    claim_end = min(claim_end, colon.start())
+                    claim_end = min(claim_end, sep_m.start())
+                    break
             claim_tokens = reference_tokens("".join(claim_chars[claim_start:claim_end]))
             nearby: List[str] = []
             if claim_tokens:
