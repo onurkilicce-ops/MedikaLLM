@@ -177,8 +177,11 @@ def test_d4_token_closing_another_clause_is_not_attributed(text):
 
 
 def test_d4_shared_claims_in_one_clause_are_not_exclusive():
+    # R2: was 'sentence_shared' with A2 still in the value's token list; another
+    # claim follows the value, so A2 is now only 'nearby' and not attributed.
     (v,) = _hl("The half-life is 4 hours and adverse events are described elsewhere.[A2]").values
-    assert v.reference_scope == "sentence_shared"
+    assert v.reference_scope == "sentence_other_clause"
+    assert v.reference_tokens == [] and v.nearby_reference_tokens == ["A2"]
     fp = _hl("The half-life is 4 hours (range 2-6 hours).[A2]")
     assert fp.values and all(v.reference_scope == "sentence_shared" for v in fp.values)
 

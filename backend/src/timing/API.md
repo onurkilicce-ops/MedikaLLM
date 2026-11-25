@@ -53,7 +53,7 @@ Kural: **her dizi alanı her zaman vardır** (boşsa `[]`); bilinmeyen sayı
 ```
 TimingCompareResponse
   schema_version: "m02-timing-compare/2"
-  parser_version: "m02-text-parser/2"
+  parser_version: "m02-text-parser/3"
   drugs: DrugTimingResult[]               # istek sırasıyla
   timing_advice: {status: "not_evaluated", advice: [] , note: str}
   limitations: {code: str, message: str}[]
@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/2",
+  "parser_version": "m02-text-parser/3",
   "drugs": [
     {
       "position": 0,
@@ -181,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/2"
+          "parser_version": "m02-text-parser/3"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -208,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/2"
+          "parser_version": "m02-text-parser/3"
         }
       ],
       "derived": [
@@ -264,7 +264,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   },
   "limitations": [
     {"code": "stored_text_not_reverified", "message": "Values are read from text stored in this database (DrugBank import). ..."},
-    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/2, src/timing/RULES.md). ..."},
+    {"code": "rule_based_extraction", "message": "Rule-based extraction (m02-text-parser/3, src/timing/RULES.md). ..."},
     {"code": "half_life_column_limit", "message": "..."},
     {"code": "general_references_not_linked", "message": "..."},
     {"code": "five_half_lives_is_an_approximation", "message": "..."},
@@ -275,6 +275,23 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   ]
 }
 ```
+
+## Ayrıştırıcı 3 (M02-O1-R2) — tüketiciler için not
+
+Sözleşme `m02-timing-compare/2` aynı kaldı (alan eklenmedi/değişmedi); ayrıştırıcı
+`m02-text-parser/2` → `/3`. Davranış farkları:
+
+- Yeni, ölçüm üretmeyen gerekçeler: `hypothetical_or_open_question` (`whether`/`if`
+  cümleciğindeki değer) ve `subject_unresolved` (küçük/büyük harften bağımsız, kayıt
+  ilacı olmayan açık özne). Üst cümleciğin olumsuzluğu (`There is no evidence that …`)
+  `undetermined_statement` verir.
+- `inline_reference_tokens` artık yalnız değerin **kendi iddiasındaki** belirteçleri
+  içerir. Pencere içinde başka iddiaya ait belirteç (`…, while adverse events are
+  described elsewhere [A2]`) `nearby_reference_tokens`'a gider. Değerden sonra başka iddia
+  geliyorsa cümle sonu belirteci de `sentence_other_clause` + `nearby` olur (sürüm 2'de
+  `sentence_shared` + listede kalıyordu).
+- Bir hayvan türü ile farmakokinetik sözcüğün birlikte geçtiği değersiz cümle
+  (`In dogs, elimination was studied.`) kapsam cümlesi sayılır.
 
 ## Sürüm 2 değişiklikleri (M02-O1-D1) — tüketiciler için not
 

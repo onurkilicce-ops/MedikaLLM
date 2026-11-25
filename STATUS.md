@@ -389,7 +389,7 @@ Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_s
 | Katı tam paket (`MEDICALLM_STRICT_TESTS=1`), `uv lock --check` | **722 geçti, 0 atlandı** (taban 342 + M-02 380); kilit temiz; önceden kaydedilmiş fixture özetleri değişmedi |
 | README 4. adım, yeni PowerShell süreçleri | Değişken yok → `REFUSED … not set in this terminal`; sentetik olmayan hedef → `REFUSED … does not end with '_synth'`; doğru hedef → `OK …`; ardından uygulama açıldı, 5. adım: `schema=m02-timing-compare/2`, Tmax 0,5–1 sa, yarılanma ömrü 4–6 sa, ≈5× 20–30 sa `includes_tmax=false`, ikinci ilaç 1,5 sa (healthy adults) / 3 sa (patients with renal impairment) |
 | Frontend (değişmedi) | Bu turda yerelde çalıştırılmadı; frontend dosyası değişmedi, sonuç CI'dan |
-| GitHub CI | PR #5'teki son commit için: PR sayfasında |
+| GitHub CI (`51b2d56`) | Run 45550798857 (denetçi kaydı): katı backend **722 geçti**, frontend 53 test + derleme ✔; checkout `aadff34…` (geçici PR birleşimi, ağaç = teslim head'i) |
 
 Çalıştırılmayanlar: gerçek DrugBank kümesi bu turda başlatılmadı/yeniden sayılmadı
 (sayılar `parser/1`'e ait, tarihsel); uzman kabulü yok; başarı yüzdesi üretilmedi;
@@ -406,6 +406,51 @@ Kadir/Halil için: C1 ve mevcut ekranlar değişmedi. M-02 tüketicisi ileride
 `stored_reference_attributed`'ı "kaynak doğrulandı" diye göstermemeli; alan değişiklikleri
 `backend/src/timing/API.md` → "Sürüm 2 değişiklikleri". Ortak dosya talebi yok. Geri alma:
 bu düzeltme commit'inin revert'i (veri/şema değişikliği yok).
+
+#### M02-O1-R2 — Yeniden denetim düzeltmeleri (Astra, denetlenen `51b2d56`; teslim, yeniden denetim bekliyor)
+
+Not: PR #5 açıklamasındaki "612 test" ilk teslimin (`6776fac`) özetidir; güncel durum bu
+bölümdedir. Denetçi kararı: D1–D4 kısmen açık; D5/D6 kapalı. Dört bulgu önce `51b2d56`'te
+yeniden üretildi (gerçek router → token/yetki → servis → JSON; yalnız repository okuma sınırı
+sentetik satırlarla değiştirildi; kayıt adı `[SYNTHETIC] Drug A`, saklı referanslar A1/A2),
+sonra düzeltildi.
+
+| Bulgu | `51b2d56` (HTTP çıktısı) | Şimdi (HTTP çıktısı) |
+|---|---|---|
+| D1 üst cümlecik | `There is no evidence that …`, `It is not known whether …`, `If … were 4 hours` → temiz 4 sa, ≈5× 20 sa; `It has not been established that Tmax is 2 hours` → temiz 2 sa | Ölçüm yok; `undetermined_statement` / `hypothetical_or_open_question` inceleme kalemi, metin korunuyor. `No dose adjustment … as the half-life is 4 hours`, `not less than 4 hours`, açık değerler temiz |
+| D2 tür kapsamı | `In dogs, elimination was studied. The half-life is 4 hours.` → `other=[]`, temiz, 20 sa | `field_context_unattributed` + `non_human_context_in_field`, ≈5× yok. `These data were obtained in dogs. In humans, …` temiz (`other=["humans"]`); P-gp gibi başka konudaki tür cümlesi değeri etkilemiyor |
+| D3 küçük harfli özne | `The half-life of drug b …`, `drug b has a half-life …` → Drug A altında temiz 10 sa, ≈5× 50 sa | Ölçüm yok, `subject_unresolved`. `The half-life of drug a/Drug A is 4 hours`, `the drug`, `elimination`, formülasyon, metabolit, `co-administered with drug c` korunuyor |
+| D4 iddia içi atıf | Pencere içindeki başka iddianın A2'si → `inline_reference_tokens=[A2]` / `[A1, A2]`, `value_window`, `stored_reference_attributed=true` | A2 yalnız `nearby_reference_tokens`; A1 açıkça değerin iddiasındaysa `value_window` ve yalnız `[A1]`. `4 hours.[A1]` ve önceki `;` düzeltmesi aynen |
+
+Tasarım kararı: yeni NLP/LLM yok. Mevcut cümlecik sınırları kullanıldı. (1) Değeri açan
+bağlaç (`that`/`whether`/`if`) ve onu yöneten üst cümlecik okunuyor. (2) Tür + farmakokinetik
+sözcüklü değersiz cümle kapsam sayılıyor. (3) Özne konumları harf büyüklüğünden bağımsız
+okunuyor, kayıt adıyla karşılaştırılıyor. (4) Belirteç, değerin kendi iddia aralığı
+içindeyse bağlanıyor. Ayrıntı RULES.md 8c.
+
+Sürüm: ayrıştırıcı `m02-text-parser/3`; API yapısı değişmediği için sözleşme
+`m02-timing-compare/2` kaldı (yalnız yeni gerekçe kodları; tüketici notu API.md
+"Ayrıştırıcı 3"). Şema, bağımlılık, CI, frontend, `main.py`, D5/D6 kodu değişmedi.
+
+Değişen eski beklentiler: (1) `… 4 hours and adverse events are described elsewhere.[A2]`:
+`sentence_shared` + A2 değerin listesinde → `sentence_other_clause` + A2 `nearby` (D4'ün
+istediği ayrım). (2) Sürüm dizeleri `parser/2` → `/3`. Ayrıca `half-life of elimination` artık
+yarılanma ömrü ifadesi sayılıyor (eskiden `elimination` rakip ölçüm sayılıp değer
+düşüyordu). Önceden kaydedilmiş 94 durum değişmedi ve geçiyor.
+
+Kanıt (2026-11-25, yerel; ayrı sentetik PG `127.0.0.1:55440`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (20 sentetik metin, HTTP) `51b2d56` → son kod | Önce D1 1–4, D2.1, D3 1–2, D4 1–3 hatalı (11/11); sonra hepsi düzeltilmiş; olumlu 9 kontrol aynı |
+| D4/D5 eski örnekleri (`repro_d1_d6`) | D4 `;` örnekleri `sentence_other_clause`; olumlu `[A1]` `sentence_single_value`; D5 `4 ± 1` → 20 ± 5 sa, taşan yayılım incelemede |
+| Yeni testler | `test_m02_audit_r2.py` (D1–D4 olumlu / olumsuz / yakın + birleşik örnek), `test_m02_audit_r2_http_pg.py` (HTTP → sentetik PG: kimlik, gerekçe, koşul, alıntı/ofset, atıf listeleri, derived; D5 korunuyor) |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **757 geçti, 0 atlandı** (taban 342 + M-02 415) |
+| GitHub CI | Son commit için PR sayfasında; bu kayıt CI sonucu için ayrıca güncellenmeyecek |
+
+Bilinen sınırlar: kayıt adının eşanlamlısı/markası özne olarak yazılırsa incelemeye düşer;
+kural listesi dışındaki yöneten fiiller ve sözlük dışı türler kaçabilir. Uzman kabulü yok;
+gerçek veri bu turda açılmadı. Geri alma: bu R2 commit'inin revert'i.
 
 ---
 

@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/2"
+PARSER_VERSION = "m02-text-parser/3"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -288,6 +288,71 @@ _SCOPE_SIGNAL = re.compile(
     r"|\bappl(?:y|ies)\s+(?:only\s+)?to\b|\brefers?\s+to\b"
     r"|\b(?:the|this)\s+study\s+(?:enrolled|included|was conducted|was performed)\b"
     r"|\bstudies\s+were\s+(?:done|conducted|performed|carried out)\b", _I)
+_GOVERNING_DOUBT = re.compile(
+    r"\b(?:no|little|insufficient|limited|weak|conflicting)\s+(?:\w+\s+)?(?:evidence|data|proof|support)\b"
+    r"|\b(?:doubt\w*|questionable|unlikely|disputed|contradict\w*)\b", re.I)
+_GOVERNING_HEDGE = re.compile(
+    r"\b(?:hypothesi[sz]\w*|speculat\w*|assum\w*|suggest\w*|propos\w*|claim\w*|believ\w*|thought|possib\w*"
+    r"|may|might|could|predict\w*|model(?:ed|led|ing)?|simulat\w*)\b", re.I)
+# R2 (M02-D3): explicit subject phrases in any letter case. The words that
+# follow 'half-life of/for' or precede 'has a half-life' are compared with the
+# record name; generic, determiner, measure, condition and metabolite words
+# do not form a subject.
+_SUBJECT_OF = re.compile(
+    r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})\s+(?:of|for)\s+"
+    r"((?:[\w-]+\s+){0,3}?[\w-]+)(?=\s*(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
+    r"|after|following|of|for|with|when|on|was|[,;:(]|$))", re.I)
+_SUBJECT_HAS = re.compile(
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+\s+){0,2}[\w-]+)\s+"
+    r"(?:has|have|had|exhibits?|shows?"
+    r"|displays?|possess(?:es)?)\s+(?:an?\s+|the\s+)?(?:[\w-]+\s+){0,2}(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t\s?max)",
+    re.I)
+_GENERIC_SUBJECT = {
+    "the", "a", "an", "this", "that", "these", "those", "its", "their", "it", "they", "which", "who", "each", "both",
+    "all", "drug", "drugs", "compound", "compounds", "agent", "agents", "medication", "medicine", "product",
+    "substance", "molecule", "parent", "unchanged", "total", "free", "unbound", "bound", "active", "elimination",
+    "distribution", "absorption", "terminal", "apparent", "mean", "median", "average", "geometric", "arithmetic",
+    "approximately", "about", "around", "roughly", "nearly", "between", "from", "up", "less", "more", "than",
+    "plasma", "serum", "blood", "biological", "effective", "initial", "final", "overall", "estimated", "reported",
+    "calculated", "observed", "measured", "only", "also", "following", "after", "phase", "dose", "doses", "single",
+    "multiple", "oral", "intravenous", "radioactivity", "radiolabel", "label", "labeled", "labelled", "approx",
+    "elimination-phase", "half", "life", "half-life", "half-lives", "and", "or", "of", "for", "in", "with",
+}
+
+
+def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str) -> bool:
+    """True when the value's own phrase names a subject that is neither the
+    record drug nor a generic/measure/condition/metabolite word."""
+    candidates: List[str] = [x.group(1) for x in _SUBJECT_OF.finditer(before)]
+    candidates += [x.group(1) for x in _SUBJECT_HAS.finditer(before)]
+    m = re.match(r"^\s*(?:\([^)]*\)\s*)?(?:for|of)\s+((?:[\w-]+\s+){0,2}[\w-]+)", after, re.I)
+    if m:
+        candidates.append(m.group(1))
+    known = [n for n in (_strip_tags(x) for x in names) if n]
+    for cand in candidates:
+        words = [w for w in re.findall(r"[\w-]+", cand.lower())]
+        while words and words[0] in _GENERIC_SUBJECT:
+            words = words[1:]
+        if not words or any(w[0].isdigit() for w in words):
+            continue
+        phrase = " ".join(words)
+        if any(phrase == n or phrase.startswith(n + " ") or n.startswith(phrase + " ") or
+               any(" ".join(words[i:]) == n for i in range(len(words))) for n in known):
+            continue
+        if all(w in _GENERIC_SUBJECT for w in words):
+            continue
+        if (_condition_spans(phrase) or _METABOLITE.search(phrase) or _PARENT.search(phrase)
+                or _GROUP_NOUN.search(phrase) or _HUMAN.search(phrase) or NON_HUMAN_TERM.search(phrase)
+                or _METABOLITE_CODE.match(cand.strip())):
+            continue
+        return True
+    return False
+
+
+_PK_WORD = re.compile(
+    r"\b(?:eliminat\w*|half[\s-]?li(?:fe|ves)|pharmacokinetic\w*|clearance|cleared|absorption|absorbed|plasma"
+    r"|serum|exposure|t\s?max|c\s?max|auc|kinetics|disposition|excret\w*|metaboli[sz]\w*|studied|measured"
+    r"|data|values?|results?|parameters?)\b", re.I)
 _SCOPE_NOUN = re.compile(r"\b(?:patients|subjects|volunteers|individuals|animals|species|population|formulations?"
                          r"|forms?|preparations?|products?)\b", _I)
 # M02-D2: categories whose context in another (value-less) sentence of the
@@ -817,9 +882,11 @@ def _measure_decision(measure: str, sentence: str, window: Span, dur: Span,
     competing = _kw_spans(COMPETING[measure], wtext)
     # 'absorption' inside 'absorption half-life', 'elimination' next to
     # 'half-life' as in 'elimination half-life': part of the target phrase.
+    # 'half-life of elimination' is also the target phrase.
     competing = [c for c in competing
                  if not any(t.start <= c.start and c.end <= t.end for t in targets)
-                 and not any(0 <= t.start - c.end <= 1 for t in targets)]
+                 and not any(0 <= t.start - c.end <= 1 for t in targets)
+                 and not any(re.fullmatch(r"\s+of\s+", wtext[t.end:c.start]) for t in targets if t.end <= c.start)]
     # 'after oral dosing' / 'following administration' is the time reference.
     admin = [Span(m.start(), m.end()) for m in _ADMIN_REF.finditer(wtext)]
     competing = [c for c in competing if not any(a.start <= c.start and c.end <= a.end for a in admin)]
@@ -954,7 +1021,12 @@ def _field_context(raw: str, sentences: List[Span], all_matches, measure: str) -
             continue
         words = re.findall(r"[A-Za-z][\w-]*", re.sub(r"\[[^\]]*\]", " ", stext))
         heading = stext.rstrip().endswith(":") or (len(words) <= 4 and not stext.rstrip().endswith("."))
-        if not (_SCOPE_SIGNAL.search(stext) or heading):
+        # R2 (M02-D2): a known species/in-vitro word together with a
+        # pharmacokinetic word ('In dogs, elimination was studied.') also sets
+        # the scope; a species sentence about something else ('In vitro studies
+        # indicate that X is a P-gp substrate.') does not.
+        pk_species = bool(NON_HUMAN_TERM.search(stext) and _PK_WORD.search(stext))
+        if not (_SCOPE_SIGNAL.search(stext) or heading or pk_species):
             continue
         non_human = non_human or bool(NON_HUMAN_TERM.search(stext))
         cond = extract_conditions(stext, measure)
@@ -1088,6 +1160,24 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             if value_negations:
                 review("negated_value")
                 continue
+            # R2 (M02-D1): a value in a 'whether' / 'if' clause is not asserted;
+            # a value in a 'that' clause takes the meaning of the clause that
+            # governs it ('There is no evidence that ...', 'It has not been
+            # established that ...'). 'as/since/because' clauses are asserted.
+            if starts:
+                opener = starts[-1].group(0).lower()
+                governing = before[starts[-2].end():starts[-1].start()] if len(starts) > 1 \
+                    else before[:starts[-1].start()]
+                if opener in ("whether", "if"):
+                    review("hypothetical_or_open_question")
+                    continue
+                if opener == "that" and (_NEGATION.search(governing) or _UNDETERMINED.search(governing)
+                                         or _GOVERNING_DOUBT.search(governing)):
+                    review("undetermined_statement")
+                    continue
+                governed_hedge = opener == "that" and bool(_GOVERNING_HEDGE.search(governing))
+            else:
+                governed_hedge = False
             after = stext[m.end():win.end]
             after_starts = list(_CLAUSE_START.finditer(after))
             first_after = after[:after_starts[0].start()] if after_starts else after
@@ -1101,7 +1191,7 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
                     or _UNDETERMINED.search(relative_after)):
                 review("undetermined_statement")
                 continue
-            hedged = bool(_HEDGE.search(own_clause) or _HEDGE.search(first_after))
+            hedged = bool(_HEDGE.search(own_clause) or _HEDGE.search(first_after) or governed_hedge)
             # M02-D5: a spread or range written in a form the value rules do not read
             if _SPREAD_PREFIX.search(prefix) or _RANGE_TAIL.search(prefix):
                 review("dispersion_or_range_form_not_structured")
@@ -1149,6 +1239,12 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             verdicts = [_subject_verdict(subject_names, n, nxt) for n, nxt in named]
             if "foreign" in verdicts:
                 review("subject_not_record_drug")
+                continue
+            # R2 (M02-D3): the same subject positions in any letter case
+            # ('The half-life of drug b ...', 'drug b has a half-life ...').
+            if subject_names and _explicit_subject_unresolved(
+                    subject_names, stext[win.start:m.start()], stext[m.end():win.end]):
+                review("subject_unresolved")
                 continue
             subject_code = "code" in verdicts
             if m.group("sign"):
@@ -1264,18 +1360,34 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             if truncated:
                 reasons.append("stored_text_possibly_truncated")
 
-            # M02-D4: a sentence-end token belongs to the last top-level ';'
-            # clause and to this value alone only if nothing else is claimed.
-            window_tokens = reference_tokens(stext[win.start:min(win.end, trailing_start)])
+            # M02-D4 / R2: a token is attributed to the value only when it stands in
+            # the value's OWN claim: from the clause start before the value to the
+            # next clause start after it ('4 hours [A1], while adverse events are
+            # described elsewhere [A2]' -> A1 only). A sentence-end token is the
+            # value's only if no other claim follows the value; several values in
+            # one sentence share it (not exclusive). Everything else is 'nearby'.
+            claim_end_limit = min(win.end, trailing_start)
+            own_starts = list(_CLAUSE_START.finditer(stext[win.start:m.start()]))
+            claim_start = win.start + own_starts[-1].end() if own_starts else win.start
+            next_start = _CLAUSE_START.search(stext, m.end(), claim_end_limit) if m.end() < claim_end_limit else None
+            claim_end = next_start.start() if next_start else claim_end_limit
+            claim_tokens = reference_tokens(stext[claim_start:claim_end])
             nearby: List[str] = []
-            if window_tokens:
-                tokens, scope = window_tokens, "value_window"
+            if claim_tokens:
+                tokens, scope = claim_tokens, "value_window"
             elif trailing_tokens:
                 depth = _paren_depths(stext)
                 top_semis = [i for i, ch in enumerate(stext[:trailing_start]) if ch == ";" and depth[i] == 0]
+                after_value = stext[m.end():trailing_start]
+                other_claim_after = any(
+                    _residue_words(after_value[x.end():]) for x in _CLAUSE_START.finditer(after_value))
                 if any(i >= m.end() for i in top_semis):
                     tokens, scope, nearby = [], "sentence_other_clause", list(trailing_tokens)
-                elif len(matches) > 1 or _residue_words(stext[m.end():trailing_start]):
+                elif len(matches) > 1:
+                    tokens, scope = trailing_tokens, "sentence_shared"
+                elif other_claim_after:
+                    tokens, scope, nearby = [], "sentence_other_clause", list(trailing_tokens)
+                elif _residue_words(after_value):
                     tokens, scope = trailing_tokens, "sentence_shared"
                 else:
                     tokens, scope = trailing_tokens, "sentence_single_value"

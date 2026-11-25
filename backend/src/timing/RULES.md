@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/2`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/3`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -204,6 +204,33 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 `unparsed_needs_review` ölçüm yok, inceleme kalemi var (veya yarılanma ömrü
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
+
+## 8c. Sürüm 3 — yeniden denetim (M02-O1-R2) kuralları
+
+- **Yöneten cümlecik (D1).** Değerin cümleciği `whether` veya `if` ile açılıyorsa
+  değer ileri sürülmemiştir → ölçüm yok, `hypothetical_or_open_question`. `that` ile
+  açılıyorsa onu yöneten üst cümlecik (bir önceki cümlecik sınırından `that`'e kadar)
+  okunur: olumsuzlama, belirlenmemişlik ya da `no/little/insufficient evidence`,
+  `unlikely`, `doubt…` → ölçüm yok, `undetermined_statement`; `suggest`, `believe`,
+  `may` gibi temkin → değer kalır, `hedged_value`. `as/since/because` ile bağlanan
+  cümlecik ileri sürülmüştür; üst cümleciğin olumsuzluğu ona taşınmaz.
+- **Tür kapsam cümlesi (D2).** Değersiz bir cümlede tanınan insan dışı/in vitro sözcüğü
+  bir farmakokinetik sözcükle (elimination, half-life, pharmacokinetic, clearance,
+  absorption, plasma, exposure, Tmax, AUC, studied, measured, data …) birlikte geçiyorsa
+  kapsam cümlesidir (`In dogs, elimination was studied.`). Başka konudaki tür cümlesi
+  (`In vitro studies indicate that X is a P-gp substrate.`) kapsam değildir.
+- **Açık özne (D3).** `half-life/Tmax of|for <sözcükler>`, `<sözcükler> has/exhibits a
+  half-life` ve değerden sonra `for/of <sözcükler>` harf büyüklüğünden bağımsız okunur.
+  Baştaki belirleyiciler (`the`, `its` …) atılır; kalan ifade kayıt adı değil ve genel
+  sözcük (`drug`, `compound`, `elimination`, `approximately` …), koşul, grup, metabolit
+  ya da tür değilse → ölçüm yok, `subject_unresolved`. Genel ilaç adı tanıma yoktur:
+  kayıt adının eşanlamlısı/markası da incelemeye düşer (bilinen sınırlama).
+- **İddia içi atıf (D4).** Belirteç yalnız değerin kendi iddiasındaysa (değerden önceki
+  son cümlecik sınırından sonraki sınıra kadar) `inline_reference_tokens`'a girer
+  (`value_window`). Cümle sonu belirteci: değerden sonra `;` veya içerikli başka bir
+  cümlecik varsa `sentence_other_clause` (bağlanmaz); cümlede başka süre varsa
+  `sentence_shared`; aksi halde `sentence_single_value`. Bağlanmayan belirteçler
+  `nearby_reference_tokens`'tadır.
 
 ## 8b. Sürüm 2 — bağımsız denetim (M02-O1-D1) kuralları
 
