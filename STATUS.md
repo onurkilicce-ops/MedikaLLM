@@ -828,6 +828,106 @@ Teknik testler uzman kabulü değildir. Gerçek veri kapsamı, ekran, kaynaklı 
 ≥%90 uzman hedefi tamamlanmış sayılmaz. Teknik yeniden denetimi Astra yapacak. Geri alma: bu
 R6 commit'inin revert'i. Kadir/Halil için ortak dosya talebi yok.
 
+#### M02-O1-R7 — D3 yakalanamayan açık özne (Astra, denetlenen `4dd0e44`; teslim, yeniden denetim bekliyor)
+
+Önceki tur (R6, `4dd0e44`) için denetçinin doğruladığı CI: çalıştırma 45752309508. Katı
+backend 1162 testi geçti, atlanan yok; frontend 53 test ve derleme başarılı. Checkout
+`8698afe455bf980bd6303118d05d20cbbbd8a165`. Denetçinin kararı: D4 kaynak bulguları
+incelenen kapsamda kapandı; D1, D2, D5 ve D6 kapalı. Tek açık iş D3'tü. SDP formu aynı dosya
+(özet `5ff3bbd3…`).
+
+Dört bulgu önce `4dd0e44`'ün ayrı kopyasında (`git archive`) yeniden üretildi. Aynı sonuç
+`90fda26`'te de vardı, yani R6 regresyonu değil. Yol gerçek router → JWT/yetki → servis →
+JSON; yalnız repository okuma sınırı sentetik satırlarla değiştirildi (gerçek PostgreSQL
+kanıtı aşağıdaki katı paket ve CI). Her istekte zaman alanları boş `[SYNTHETIC] Drug B`
+de gönderildi.
+
+| Örnek (kayıt Drug A) | `4dd0e44` (HTTP) | Şimdi (HTTP) |
+|---|---|---|
+| `For 20% drug b, the half-life is 10 hours.` | temiz 10 sa, `computed` 50 sa | ölçüm yok; inceleme kalemi `subject_unresolved`, alıntı ve konum korunuyor |
+| `The half-life of 20% drug b is 10 hours.` | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| `For 2.5mg drug b, the half-life is 10 hours.` | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+| `The half-life of 2.5mg drug b is 10 hours.` | temiz 10 sa, 50 sa | ölçüm yok, `subject_unresolved` |
+
+Olumlu kontroller önce de sonra da temiz, 20 sa:
+- `20%` ve `2.5mg` biçimlerinde drug a;
+- `For 2.5 mg drug a`, `For 10mg drug a`;
+- `The drug's half-life`, `The half-life is 4 hours.`, `For oral administration`;
+- kendi kayıt adıyla 5-zoralen.
+
+Önceki olumsuzlar (`For 2.5 mg drug b`, `For 10mg drug b`, `For 10 mg 5-zoralen`, tuz/ad
+uyuşmazlıkları) çözülemedi olarak kaldı. Pozitifler `4dd0e44`'te de temizdi, ama yalnız
+özne hiç okunmadığı için temiz çıkıyordu; şimdi ad okunup kayıt adıyla eşleştiği için
+temiz.
+
+**Kök neden ve temsil kararı (yalnız `parser.py`).** Katı özne kalıbının sözcük sınıfı `%`
+işaretini ve bitişik ondalık birimi okuyamıyordu. Aday listesi boş kalıyor, 8d bağlam
+yedeği bunu "genel özne" sayıyordu. Düzeltme iki katmanlı:
+- (1) Okunan biçimler genişletildi.
+- (2) Açık özne çerçeveleri için gevşek algılayıcılar eklendi. Kapsanan çerçeveler:
+  `half-life of`, `For/In …,`, olay açılışları (`After/Following/During/With/Upon/On …,`),
+  iyelik, değerden sonraki `for/of …` ve `X has/demonstrates/is reported to have`.
+  Katı kalıp öbeğin tamamını kapsamadıysa gevşek öbek atılmaz, aynı kurallarla
+  değerlendirilir. Okunabilir sözcüğü olmayan öbek açık `UNCAPTURED` işareti alır ve
+  çözülemedi sayılır.
+
+Böylece "çerçeve var, özne okunamadı" bilgisi karar sırasında kaybolmuyor. Ayrıntı ve
+sınırlar RULES.md 8h'de.
+
+**Bağımsız çürütme taraması.** Bu turda dört kez çalıştı; her bulgu ayrı bir ajanca
+yürütülerek doğrulandı. Doğrulanan bulgular düzeltildi ve testlere eklendi:
+- ilk taslağın aşırı reddi: `In healthy adults (n=12),`, `For the 10 mg/5 mL solution,`,
+  `In patients with CrCl < 30 mL/min,`, `Drug A, given orally, has`, `After removal of the
+  patch,` …;
+- yeni bulunan yanlış temizler: değerden sonra gelen yabancı özne, `has` kalıbında `®`,
+  ayraç ve uzun özne, `of` zincirleri (`half-life after overdose of drug b`, `the solution
+  of the tablet of drug b`), `is reported/has been shown to have`, `studies of drug b`.
+
+Sınır olarak bırakılanlar (geçen test sayılmadı, RULES 8h):
+- ara ifadeyle `has`'tan ayrılan ad;
+- yalnız ayraç ya da ilgi cümleciği içinde geçen ad;
+- başka cümlecikteki özne;
+- `Regarding/As for X,`, `drug b:` küçük harfli başlık ve iyeliksiz ad.
+
+**Ayrı tutulan notlar.**
+- **M02-N1 (açık, bu turun konusu değil, geçen test sayılmadı).** `The half-life is 4
+  hours (in adults [A1]) - 10 hours after dosing, rash was observed [A2].` Beklenti A1'in
+  bağlanmasıydı. Şu anki çıktı `condition_attribution_ambiguous` ile incelemedir; hesap
+  yok, metin ve yakın belirteçler korunuyor. Kaynak kapsamı değerlendirmesine açık not.
+- `4 hours -- 6 hours` iki işaretli değer olarak kaldı (aralık sayılmıyor).
+
+Sürüm: ayrıştırıcı `m02-text-parser/7` → `/8`. API sözleşmesi `m02-timing-compare/2` aynı
+kaldı (API.md "Ayrıştırıcı 8"). Veri, şema, bağımlılık, CI, frontend, `main.py`, ortak
+fixture, service, calc ve models değişmedi. Önceden kaydedilmiş 94 durum değişmeden
+geçiyor.
+
+Değişen eski beklentiler:
+- Sürüm dizesi: iki entegrasyon testi `/7` → `/8`; `test_m02_audit_r6.py`'deki sürüm
+  kontrolü "en az 7" oldu, tam değeri `test_m02_audit_r7.py` denetliyor.
+- Bu turun kendi taslak beklentisi değişti: "olağan dışı karakterli kayıt adı da
+  incelemeye gider" beklentisi, bağımsız tarama toptan işaretlemenin olağan çerçeveleri
+  reddettiğini gösterince "okunabilir ad karar verir" oldu. Yabancı ad için beklenti
+  değişmedi.
+- Eski M-02 davranış beklentileri gevşetilmedi.
+
+Kanıt (2026-11-26, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (21 sentetik metin, HTTP), `4dd0e44` kopyası → son kod | Önce 4/4 bulgu hatalı; sonra 4/4 düzeltildi, olumlu ve olumsuz eşler beklenen |
+| R6 (23), R5 (22), R4 (27), R3 (26), R2 (20), D1–D6 (13) örnekleri, HTTP | Önceki çıktılarla birebir aynı (yalnız ayrıştırıcı sürümü farklı) |
+| R7 sınır kümesi (374 metin, beklenti çalıştırmadan önce yazıldı): harf büyüklüğü, bitişik/ayrı birim, ondalık nokta/virgül, yüzde, olağan dışı biçimler, doğrulanan bulgular | `4dd0e44`'te 104 hatalı; şimdi 374/374 |
+| Önceki taramalar (R3 75, R4 323, R5 347, R6 99, 33 sıradan cümle) | Değişmedi |
+| Birim | **1164 geçti** |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **1392 geçti, 0 atlandı** (59 sn), son kod |
+| GitHub CI | Son commit için PR sayfasında |
+
+Koşulamayanlar: gerçek PostgreSQL/DrugBank (kural gereği açılmadı).
+
+Uzman kabulü yok. Gerçek veri kapsamı, ekran, kaynaklı zaman aralığı ve ≥%90 uzman hedefi
+tamamlanmadı. Teknik yeniden denetimi Astra yapacak. Geri alma: bu R7 commit'inin revert'i.
+Kadir/Halil için ortak dosya talebi yok.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

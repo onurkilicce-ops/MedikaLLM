@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/7"
+PARSER_VERSION = "m02-text-parser/8"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -346,12 +346,14 @@ _GOVERNING_HEDGE = re.compile(
 _SUBJECT_OF = re.compile(
     r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})\s+(?:of|for)\s+"
     # R4: the stop word must be a whole word ('sulfate' does not stop at 'at')
-    r"((?:[\w-]+(?:[.,]\d+)*\s+){0,5}?[\w-]+)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
-    r"|after|following|of|for|with|when|on|was)\b|\s*[,;:(]|\s*$)", re.I)
+    r"((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){0,5}?(?:[\w%-]|(?<=\d)[.,](?=\d))+)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
+    # R7: a comma inside a number ('2,5 mg') is not a stop
+    r"|after|following|of|for|with|when|on|was)\b|\s*(?:,(?!\d)|[;:(])|\s*$)", re.I)
 _SUBJECT_HAS = re.compile(
-    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+(?:[.,]\d+)*\s+){0,4}[\w-]+(?:[.,]\d+)*)\s+"
-    r"(?:has|have|had|exhibits?|shows?"
-    r"|displays?|possess(?:es)?)\s+(?:an?\s+|the\s+)?(?:[\w-]+\s+){0,2}(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t\s?max)",
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){0,4}?(?:[\w%-]|(?<=\d)[.,](?=\d))+)\s+"
+    r"(?:has|have|had|exhibits?|exhibited|shows?|showed|displays?|displayed|possess(?:es)?|demonstrates?"
+    r"|demonstrated|(?:is|are|was|were|has\s+been|have\s+been)\s+(?:reported|found|shown|known|estimated)\s+to\s+have)"
+    r"\s+(?:an?\s+|the\s+)?(?:[\w-]+\s+){0,4}(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t\s?max)",
     re.I)
 _GENERIC_SUBJECT = {
     "the", "a", "an", "this", "that", "these", "those", "its", "their", "it", "they", "which", "who", "each", "both",
@@ -379,22 +381,28 @@ _GENERIC_SUBJECT = {
 _APOS = "['’ʼ`´]"
 _KW_POSS = (r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak|peak(?:\s+\w+){0,2}\s+(?:concentrations?"
             r"|levels?)|c\s?max)")
-_SUBJECT_POSSESSIVE = re.compile(rf"((?:[\w-]+(?:[.,]\d+)*\s+){{0,2}}[\w-]+(?:[.,]\d+)*){_APOS}s\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
+_SUBJECT_POSSESSIVE = re.compile(rf"((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){{0,2}}(?:[\w%-]|(?<=\d)[.,](?=\d))+){_APOS}s\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
 _SUBJECT_PLURAL_POSSESSIVE = re.compile(
-    rf"((?:[\w-]+(?:[.,]\d+)*\s+){{0,4}}[\w-]+(?:[.,]\d+)*){_APOS}(?!s\b)\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
+    rf"((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){{0,4}}(?:[\w%-]|(?<=\d)[.,](?=\d))+){_APOS}(?!s\b)\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
 _SUBJECT_REACHES = re.compile(
-    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+(?:[.,]\d+)*\s+){0,2}[\w-]+(?:[.,]\d+)*)\s+"
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){0,2}(?:[\w%-]|(?<=\d)[.,](?=\d))+)\s+"
     r"(?:reach(?:es|ed)?|attain(?:s|ed)?|achiev(?:es|ed)?)\s+(?:its\s+|their\s+)?(?:peak|maximum|maximal|c\s?max)\b",
     re.I)
 _SUBJECT_FRAME = re.compile(
     r"(?:^\s*(?:\[[^\]]*\]\s*)?|[.;:,]\s*|\b(?:and|but|while|whereas)\s+)(?:for|in)\s+"
-    r"((?:[\w-]+(?:[.,]\d+)*\s+){0,14}[\w-]+(?:[.,]\d+)*)\s*,", re.I)
+    r"((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){0,14}(?:[\w%-]|(?<=\d)[.,](?=\d))+)\s*,", re.I)
 _FRAME_PREPOSITION = re.compile(
     r"\s+(?:in|with|without|after|during|following|at|on|under|before|among|receiving|taking|given|when|if"
     r"|by|via|from|to|of)\s+", re.I)
+_SITUATION_WORDS = (
+    r"overdose|overdosage|intoxication|poisoning|use|administration|co-?administration|infusion|dosing|intake"
+    r"|ingestion|doses?|formulations?|tablets?|capsules?|solutions?|suspensions?|injections?|forms?|preparations?"
+    r"|stud(?:y|ies)|trials?|evaluations?"
+    r"|products?|metabolites?|enantiomers?|isomers?|salts?|esters?|prodrugs?|patch(?:es)?")
+_SITUATION_LAST = re.compile(rf"\b(?:{_SITUATION_WORDS})\s*$", re.I)
 _FRAME_SITUATION_OF = re.compile(
-    r"\b(?:overdose|overdosage|intoxication|poisoning|use|administration|treatment|therapy|infusion|dosing)"
-    r"\s+of\s+((?:[\w-]+(?:[.,]\d+)*\s+){0,3}[\w-]+(?:[.,]\d+)*)", re.I)
+    rf"\b(?:{_SITUATION_WORDS})"
+    r"\s+of\s+((?:(?:[\w%-]|(?<=\d)[.,](?=\d))+\s+){0,3}(?:[\w%-]|(?<=\d)[.,](?=\d))+)", re.I)
 _FRAME_NOT_SUBJECT = {
     "general", "summary", "practice", "addition", "particular", "contrast", "example", "instance", "short",
     "conclusion", "comparison", "case", "cases", "study", "studies", "trial", "trials", "state", "states", "vivo",
@@ -454,7 +462,7 @@ def _subject_residual(phrase: str, drop_salts: bool = True) -> List[str]:
 # '20%'); a word that starts with a digit but continues with letters
 # ('5-zoralen') is a name word.
 _AMOUNT_WORD = re.compile(
-    r"\d+(?:[.,]\d+)*(?:-?(?:mg|g|mcg|ug|µg|ml|l|kg|iu|units?|mmol|h|hr|hrs|hours?|min|minutes?|days?|weeks?"
+    r"\d+(?:[.,]\d+)*(?:[-–/]\d+(?:[.,]\d+)*)*(?:-?(?:mg|g|mcg|ug|µg|ml|l|kg|iu|units?|mmol|h|hr|hrs|hours?|min|minutes?|days?|weeks?"
     r"|months?|years?|x|fold|%))?", re.I)
 
 
@@ -463,7 +471,17 @@ _AMOUNT_WORD = re.compile(
 _DESCRIPTOR_WORD = {"form", "forms", "dosage", "preparation", "preparations", "presentation", "strength",
                     "mg", "g", "mcg", "ug", "µg", "ml", "l", "kg", "iu", "units", "unit", "mmol", "dose", "doses",
                     "aged", "age", "ages", "years", "year", "months", "month", "weeks", "week", "days", "day", "old",
-                    "hours", "hour", "h", "hr", "hrs", "min", "minutes"}
+                    "hours", "hour", "h", "hr", "hrs", "min", "minutes",
+                    # R7: dosage forms and unit fragments ('2.5% cream', '10 mg/5 mL', 'mL/min')
+                    "cream", "creams", "ointment", "gel", "lotion", "spray", "drops", "patch", "suppository",
+                    "suppositories", "lozenge", "film", "implant", "kg", "min", "ml",
+                    "below", "above", "greater", "over", "exceeding", "weighing", "weight", "weights",
+                    "titration", "cohort", "cohorts", "arm", "arms", "level", "levels",
+                    # R7: settings after 'With/After/Following ...,'
+                    "food", "meal", "meals", "breakfast", "water", "increasing", "decreasing", "repeated",
+                    "discontinuation", "cessation", "withdrawal", "initiation", "start", "completion", "end",
+                    "maintenance", "loading", "induction", "daily", "once", "twice", "first", "second", "third",
+                    "continuous", "intermittent", "concomitant", "topical", "application", "instillation", "drop"}
 # R5: the head of a candidate ends before a prepositional condition ('drug b in
 # adults' -> 'drug b'); 'of' is kept ('the metabolite of drug b').
 _CANDIDATE_TAIL = re.compile(
@@ -489,6 +507,8 @@ def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] 
     when it equals the record name with the salt words kept, otherwise foreign.
     'ignore' is left for candidates without any name word (generic words,
     conditions, groups, species, metabolites)."""
+    if cand == UNCAPTURED:
+        return "foreign"  # R7: an explicit frame without a readable subject is unresolved
     # R5: a condition after the name does not erase it ('drug b in adults' ->
     # 'drug b'); only a quantity, a whole metabolite code, or a phrase whose
     # head noun is a population ('Japanese subjects') carries no subject.
@@ -515,9 +535,133 @@ def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] 
     return "record" if _same_name(" ".join(salted), known_salted) else "foreign"
 
 
+# R7 (M02-D3): an explicit subject frame whose subject the patterns above did
+# not capture ('For 20% drug b,' before R7, 'For drug b®,', a frame longer than the
+# word limits) is NOT a generic subject. The loose detectors below only find
+# that a frame is there and where its subject phrase ends; when no strict
+# candidate covers that phrase (none at the same place, or a shorter, partial
+# one: '2,5 mg drug b' read as '2'), the loose phrase itself is judged
+# (_loose_candidates); a phrase without any readable word becomes UNCAPTURED,
+# which _judge_subject treats as unresolved.
+UNCAPTURED = "\x00uncaptured-subject"
+_LOOSE_OF = re.compile(
+    r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})\s+(?:of|for)\s+"
+    r"(?P<p>\S.{0,200}?)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at|after"
+    r"|following|of|for|with|when|on)\b|\s*(?:,(?!\d)|[;:(])|\s*$)", re.I | re.S)
+_LOOSE_FRAME = re.compile(
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[.;:,]\s*|\b(?:and|but|while|whereas)\s+)"
+    r"(?P<op>for|in|following|after|during|with|upon|on)\s+(?P<p>[^,;:]{1,300}?)"
+    r"\s*(?:,|:(?=\s))", re.I)
+# R7: the clause subject of 'X has a half-life' ('drug b® has', 'drug b (20 mg) has',
+# 'drug b, a synthetic agent, has', a subject longer than the strict 5 words)
+_LOOSE_HAS = re.compile(
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;]\s*|\b(?:and|but|while|whereas)\s+)"
+    r"(?P<p>(?:[^,;.()]|(?<=\d)[.,](?=\d)|\([^()]*\)){1,160}?)\s+"
+    r"(?:has|have|had|exhibits?|exhibited|shows?|showed|displays?|displayed|possess(?:es)?|demonstrates?"
+    r"|demonstrated|(?:is|are|was|were|has\s+been|have\s+been)\s+(?:reported|found|shown|known|estimated)\s+to\s+have)"
+    r"\s+(?:an?\s+|the\s+)?(?:\S+\s+){0,4}(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t\s?max)", re.I)
+# R7: a subject phrase right after the value ('4 hours for 20% drug b.')
+_LOOSE_AFTER = re.compile(
+    r"^\s*(?:\([^)]*\)\s*)?(?:for|of)\s+(?P<p>(?:[^.;:,()]|(?<=\d)[.,](?=\d)){1,120}?)(?=\s*(?:[.,](?!\d)|[;:(]|$))", re.I)
+_LOOSE_POSSESSIVE = re.compile(rf"\S{_APOS}s?\s+(?:\S+\s+){{0,6}}?{_KW_POSS}", re.I)
+
+
+_CHAIN_STOP = re.compile(
+    r"(?<!\d)[.,]|[.,](?!\d)|[;:(]|\s+(?:is|was|are|were|has|have|had|ranges?|ranged|varies|varied|averages?|averaged|in|with|after"
+    r"|following|during|at|on|to|by|via|from|among|when|if|who|which|that)\b", re.I)
+
+
+def _of_chain(text: str) -> List[str]:
+    """R7: every 'of' complement that follows a situation or form word, at any
+    depth ('the formulation of drug b', 'the solution of the tablet of drug b',
+    'after overdose of drug b'). Each complement ends at the next 'of', verb,
+    preposition or punctuation."""
+    out: List[str] = []
+    parts = re.split(r"\s+of\s+", text, flags=re.I)
+    for prev, part in zip(parts, parts[1:]):
+        if _SITUATION_LAST.search(prev):
+            head = _CHAIN_STOP.split(" " + part, maxsplit=1)[0].strip()
+            if head:
+                out.append(head)
+    return out
+
+
+def _frame_heads(phrase: str) -> List[str]:
+    """The subject heads of a frame phrase: the part before the first
+    preposition, plus every 'of' complement of a situation/form word."""
+    heads = [_FRAME_PREPOSITION.split(phrase, maxsplit=1)[0]] + _of_chain(phrase)
+    return [part for h in heads for part in re.split(r"\s*,\s*|\s+(?:and|or)\s+", h) if part.strip()]
+
+
+def _clean_phrase(phrase: str) -> str:
+    """Reference tokens and round-bracket annotations removed ('(n=12)', '(oral)')."""
+    return re.sub(r"\([^()]*\)", " ", re.sub(_TOKEN_BLOCK, " ", phrase))
+
+
+def _loose_candidates(phrase: str) -> List[str]:
+    """R7: an explicit frame that the strict pattern did not (fully) capture is
+    still judged, never dropped. Round-bracket annotations ('(n=12)', '(oral)')
+    and reference tokens are removed; the rest goes through the same head and
+    name rules. A phrase with no readable word at all is UNCAPTURED."""
+    text = _clean_phrase(phrase)
+    if not re.search(r"[A-Za-z0-9]", text):
+        # '~' / '≈' / '<' before a value qualify the value; any other unreadable
+        # phrase ('®', '†') stays an unresolved subject
+        return [] if re.fullmatch(r"[\s~≈∼<>≤≥=±]*", text) else [UNCAPTURED]
+    heads = _frame_heads(text)
+    return heads or [UNCAPTURED]
+
+
+def _uncovered_frames(before: str, after: str = "") -> List[str]:
+    """Candidates for explicit subject frames in ``before`` (and right after
+    the value) that the strict patterns did not cover completely."""
+    out: List[str] = []
+    of_end = {x.start(): x.end(1) for x in _SUBJECT_OF.finditer(before)}
+    for x in _LOOSE_OF.finditer(before):
+        if of_end.get(x.start(), -1) < x.end("p"):
+            out += _loose_candidates(x.group("p"))
+    frame_end = {x.start(): x.end() for x in _SUBJECT_FRAME.finditer(before)}
+    for x in _LOOSE_FRAME.finditer(before):
+        if frame_end.get(x.start(), -1) < x.end():
+            if x.group("op").lower() in ("for", "in"):
+                out += _loose_candidates(x.group("p"))
+            else:  # event opener: only 'of' chains ('After administration of drug b,')
+                out += _of_chain(_clean_phrase(x.group("p")))
+    apos = {x.end(1) for rx in (_SUBJECT_POSSESSIVE, _SUBJECT_PLURAL_POSSESSIVE) for x in rx.finditer(before)}
+    for x in _LOOSE_POSSESSIVE.finditer(before):
+        if x.start() + 1 not in apos:
+            words = re.search(r"([^\s\]]+(?:\s+[^\s\]]+){0,2})$", before[:x.start() + 1])
+            out += _loose_candidates(words.group(1) if words else "")
+    # R7: the subject noun phrase right before 'has/demonstrates ... half-life'
+    # (after the last comma or clause start). The first, clause-wide version
+    # over-rejected ordinary sentences ('Drug A, given orally, has ...').
+    has_cov = {(x.start(1), x.end(1)) for x in _SUBJECT_HAS.finditer(before)}
+    for x in _LOOSE_HAS.finditer(before):
+        if (x.start("p"), x.end("p")) in has_cov:
+            continue  # the strict pattern read the same phrase
+        subj = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", x.group("p"))
+        for part in [subj]:
+            # a relative or verb clause ('which is cleared ...', 'studies have shown it') is not the
+            # subject; an apposition with an indefinite article describes it ('drug a, a synthetic agent,')
+            if not part.strip() or re.match(r"(?i)(?:which|who|whom|whose|that|where|when|an?)\b", part) \
+                    or _FINITE_WORD.search(part):
+                continue
+            out += _loose_candidates(part)
+    m = _LOOSE_AFTER.match(after)
+    if m:
+        out += _loose_candidates(m.group("p"))
+    return out
+
+
 def _subject_candidates(before: str, after: str = "") -> List[str]:
     out: List[Tuple[int, str]] = []
     out += [(x.start(), x.group(1)) for x in _SUBJECT_OF.finditer(before)]
+    # R7: 'of' chains after a measure keyword ('half-life of the formulation of
+    # drug b', 'half-life after overdose of drug b')
+    for kw in re.finditer(_KW_POSS, before):
+        tail = re.split(r"(?<!\d)\.|\.(?!\d)|[;:]|\s+(?:is|was|are|were|has|have|had|ranges?|ranged|varies|varied|averages?"
+                        r"|averaged)\b", before[kw.end():], maxsplit=1)[0]
+        out += [(kw.start(), c) for c in _of_chain(" " + tail)]
     out += [(x.start(), x.group(1)) for x in _SUBJECT_HAS.finditer(before)]
     out += [(x.start(), x.group(1)) for x in _SUBJECT_REACHES.finditer(before)]
     for rx in (_SUBJECT_POSSESSIVE, _SUBJECT_PLURAL_POSSESSIVE):
@@ -532,11 +676,7 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
         # first preposition) is the candidate, plus the 'of' complement of a
         # situation word ('In overdose of drug b,' -> 'drug b').
         phrase = x.group(1)
-        head = _FRAME_PREPOSITION.split(phrase, maxsplit=1)[0]
-        heads = [head]
-        sit = _FRAME_SITUATION_OF.search(phrase)
-        if sit:
-            heads.append(sit.group(1))
+        heads = [_FRAME_PREPOSITION.split(phrase, maxsplit=1)[0]] + _of_chain(phrase)
         for h in heads:
             # R5: a setting word no longer drops the whole head ('For drug b
             # monotherapy,'); the head is judged and setting words are removed
@@ -548,7 +688,8 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
     m = re.match(r"^\s*(?:\([^)]*\)\s*)?(?:for|of)\s+((?:[\w-]+\s+){0,2}[\w-]+)", after, re.I)
     if m:
         out.append((len(before), m.group(1)))
-    return [c for _, c in sorted(out, key=lambda t: t[0])]
+    cands = [c for _, c in sorted(out, key=lambda t: t[0])]
+    return cands + _uncovered_frames(before, after)
 
 
 def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, sentence_before: str = "") -> bool:

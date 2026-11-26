@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/7`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/8`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -204,6 +204,94 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 `unparsed_needs_review` ölçüm yok, inceleme kalemi var (veya yarılanma ömrü
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
+
+## 8h. Sürüm 8 — yedinci denetim (M02-O1-R7) kuralları: yakalanamayan açık özne
+
+Kök neden: Açık özne çerçevesindeki ad, katı yakalama kalıplarının okuyamadığı bir
+biçimdeydi (`For 20% drug b,`, `The half-life of 2.5mg drug b`). Bu durumda aday listesi
+boş kalıyordu. Boş liste ve penceredeki ölçüm sözcüğü birlikte "değerin kendi genel
+öznesi var" diye okunuyordu (8d bağlam yedeği), sonuç olarak kayıt ilacına temiz değer
+yazılıyordu. Aynı hata `90fda26`'te de vardı; R6 regresyonu değildir.
+
+**Temsil kararı.** "Çerçeve var, özne okunamadı" bilgisi aday listesinde korunur; hiçbir
+zaman sessizce boş liste olmaz.
+
+1. **Okunan biçimler genişletildi.** Katı özne kalıplarındaki sözcük `%` işaretini,
+   bitişik birimi ve sayı içi ondalık virgülü/noktayı kapsar (`20%`, `2.5mg`, `2,5 mg`,
+   `0.5-mg`). `half-life of X` kalıbında sayı içindeki virgül durdurucu değildir.
+2. **Gevşek çerçeve öbeği.** Aşağıdaki açık özne çerçeveleri için gevşek bir algılayıcı
+   çerçeveyi ve öznenin bittiği yeri bulur:
+   - `half-life/Tmax of|for …`;
+   - `For|In …,` ya da `…: ` (baş öbek ve `of` zinciri değerlendirilir);
+   - `Following|After|During|With|Upon|On …,`: bu açılışlar bir olayı ya da durumu
+     adlandırır. Yalnız `of` zinciri değerlendirilir (`After administration of drug b,` →
+     `drug b`); baş öbek (`After removal of the patch`, `During continuous infusion`) özne
+     sayılmaz;
+   - ölçüm sözcüğünden önceki iyelik;
+   - değerden hemen sonraki `for|of …` (`4 hours for 20% drug b`);
+   - `X has|demonstrates|is reported/found/shown to have|has been shown to have … half-life`
+     kalıbında (`half-life` önünde en çok 4 niteleyici sözcük), fiilden
+     hemen önceki (son virgülden sonraki) ad öbeği.
+
+   Katı kalıp aynı yerde öbeğin tamamını kapsayan bir aday üretmediyse gevşek öbek aday
+   olarak eklenir. Bu, aday hiç üretilmediğinde de, aday kısa kaldığında da geçerlidir
+   (örneğin `2,5 mg drug b` yalnız `2` olarak okunduysa).
+3. **Gevşek öbek aynı kurallarla değerlendirilir.** Önce yuvarlak ayraç içi açıklamalar
+   (`(n=12)`, `(oral)`, `(Child-Pugh B)`) ve kaynak belirteçleri çıkarılır. Köşeli ayraç
+   içeriği tutulur (`In [drug b],`). Sonra şunlar uygulanır:
+   - çerçeve başı (8e/8f);
+   - `of` zinciri: bir durum/biçim sözcüğünden (`overdose`, `administration`, `use`,
+     `dose`, `formulation`, `tablet`, `solution`, `metabolite`, `salt`, `study`, `trial` …)
+     sonra gelen her
+     `of` tümleci, her derinlikte (`the solution of the tablet of drug b`, `half-life
+     after overdose of drug b`);
+   - miktar ayıklama (8g);
+   - kayıt adıyla eşitlik (8f).
+
+   Sonuç:
+   - yabancı ad → ölçüm yok, `subject_unresolved`, ≈5× yok, metin ve konum inceleme
+     kalemindedir;
+   - kayıt adı (`drug a®`, `For drug a (oral),`) → kayıt;
+   - yalnız ortam, miktar ya da topluluk taşıyan öbek (`In healthy adults (n=12),`, `For
+     the 10 mg/5 mL solution,`, `In patients with CrCl < 30 mL/min,`, `With food,`,
+     `After discontinuation,`) → özne yok.
+4. **UNCAPTURED işareti.** Gevşek öbekte hiç okunabilir sözcük yoksa (`For ®®,`) aday
+   `UNCAPTURED` olur ve çözülemedi sayılır. Yalnız `~`, `≈`, `<`, `>` gibi değer
+   niteleyicilerinden oluşan öbek (`half-life of ~4 hours`) özne değildir.
+5. **`treatment/therapy of X` durum zinciri değildir.** Burada X genelde bir hastalıktır
+   (`In the treatment of hypertension,`). Önceki sürümde bu tümleç yabancı ad sayılıyordu;
+   artık sayılmıyor.
+6. **Ad sayılmayan betimleyiciler.** Doz biçimleri (`cream`, `ointment`, `gel`, `patch`
+   …), birim parçaları (`mL/min`, `mg/kg`), sayı aralıkları (`10-20%`, `2.5-5`),
+   karşılaştırma ve ağırlık sözcükleri (`below`, `greater`, `weighing`), kohort/kol/düzey
+   sözcükleri ile yemek/su ve başlatma/kesme sözcükleri ad sayılmaz.
+
+**Değişmeyenler.**
+- Çerçeve yoksa genel özne kabul edilir (`The half-life is 4 hours.`, `The drug's
+  half-life`).
+- Kayıt adıyla eşit ad kayıttır (`For 20% drug a,`, `For 2.5mg drug a,`).
+- Kaynak atfı, ofsetler, birim/aralık/±, `timing_advice` ve karşılaştırma kuralı
+  (`like/unlike` → `comparison_in_clause`, 8a) değişmedi.
+
+**Sınırlar (geçen test sayılmaz).** Aşağıdaki biçimlerde başka ilacın değeri hâlâ temiz
+çıkabilir; bunlar seçilmiş sentetik örneklerle gösterildi:
+- `has` öznesinden ara ifade ya da virgülle ayrılan ad (`drug b, a synthetic agent, has`,
+  `drug b, in contrast, has`). Cümle boyu bir kural, bağımsız incelemede olağan kayıt
+  cümlelerini reddetti (`Drug A, given orally, has`), bu yüzden kural dar tutuldu.
+- Adın yalnız ayraç içinde ya da ilgi cümleciğinde geçmesi (`The tablet (drug b) has`,
+  `The tablet, which contains drug b, has`).
+- Öznenin başka bir cümlecikte ya da cümlede olması (`The formulation of drug b was
+  studied and it has …`).
+- `Regarding|As for X,` gibi listede olmayan açılışlar, `drug b:` küçük harfli başlık
+  ve iyeliksiz ad (`drug b half-life`).
+- Gevşek algılayıcıların uzunluk sınırları: 200 karakterden uzun `of` öbeği, 300
+  karakterden uzun çerçeve ve ölçüm sözcüğünden 6'dan fazla sözcük önceki iyelik
+  algılanmaz.
+
+Diğer notlar:
+- `drug a/placebo` ikinci bir ad parçası içerdiği için incelemeye düşer.
+- Büyük harfli adlar (8a/8b) aynı sonucu `subject_not_record_drug` gerekçesiyle verir.
+- Sonuçlar seçilmiş sentetik örneklere dayanır; genel doğruluk garantisi değildir.
 
 ## 8g. Sürüm 7 — altıncı denetim (M02-O1-R6) kuralları: miktar, aralık, belirteç bütünlüğü
 

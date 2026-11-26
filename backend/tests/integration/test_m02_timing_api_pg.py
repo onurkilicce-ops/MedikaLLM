@@ -112,7 +112,7 @@ def test_two_drugs_sourced_values_order_and_separate_derived(m02):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["schema_version"] == "m02-timing-compare/2"
-    assert body["parser_version"] == "m02-text-parser/7"
+    assert body["parser_version"] == "m02-text-parser/8"
     assert [d["requested_id"] for d in body["drugs"]] == [B, A]
     assert [d["position"] for d in body["drugs"]] == [0, 1]
     assert body["timing_advice"] == {
