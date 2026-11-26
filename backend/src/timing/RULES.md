@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/6`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/7`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -205,6 +205,47 @@ ayrıştırılmaz (`sentence_possibly_truncated`); diğer ölçümler
 alanında metin var) · `no_statement_found` (yalnız absorption) metin var, Tmax
 ifadesi/inceleme kalemi yok · `empty` · `placeholder`.
 
+## 8g. Sürüm 7 — altıncı denetim (M02-O1-R6) kuralları: miktar, aralık, belirteç bütünlüğü
+
+Bu bölüm 8f'deki iki kuralı değiştirir: "rakamla başlar" kuralı ve "ardından süre" kuralı.
+Değişen cümleler 8f'de `[R6: 8g ile değişti]` diye işaretlidir.
+
+- **Miktar ile ad ayrımı (D3).** Rakamla başlamak, adayın miktar olduğunu göstermez. Aday
+  sözcük sözcük okunur. Yalnız miktar sözcükleri atılır:
+  - çıplak sayı (`10`, `2.5`);
+  - birim ya da `%` ile birleşik sayı (`10-mg`, `4-hour`, `20%`);
+  - birim sözcükleri (`mg`, `hours` …, 8f).
+
+  Rakamla başlayıp harfle süren sözcük (`5-zoralen`) bir ad sözcüğüdür. Sonuçlar:
+  - `10 mg drug b` → `drug_b`, yabancı;
+  - `10 mg drug a` → kayıt;
+  - kayıt adı `5-zoralen` iken `5-zoralen` → kayıt;
+  - `6-zoralen` ↔ `5-zoralen` → çözülemedi;
+  - yalnız miktardan oluşan aday (`4 hours`, `the 10 mg dose`, `12 healthy volunteers`)
+    ad sözcüğü bırakmaz ve özne taşımaz.
+
+  Özne kalıpları ondalık miktarı da kapsar (`2.5 mg drug b`).
+- **Aralık iki uçla belirlenir (D4-A).** Bir çizgi (`-`, `–`, `—`, `--`) yalnız iki
+  ayrıştırılmış süre arasındaysa ayırıcı sayılmaz. Bunun için bir sürenin tam çizgiden önce
+  bitmesi ve bir başkasının tam çizgiden sonra başlaması gerekir. Yalnız sağda süre olması
+  yetmez: `Rash was observed [A2] - 4 hours is the half-life [A1]` cümlesinde çizgi bir
+  sınırdır. Bu cümlede A1 değere bağlanır, A2 `nearby`'da kalır.
+
+  Değer ayrıştırıcısının tek ifade olarak okuduğu aralıklar (`4-6 hours`, `4 – 6 hours`,
+  `4 hours - 6 hours`, `4 hours — 6 hours`) değerin içindedir ve değişmedi. `4 hours -- 6
+  hours` değer ayrıştırmada aralık değildir. İki çelişen değer olarak incelemeye düşer,
+  ≈5× hesaplanmaz; belgelenmiş sınırlama olarak kaldı.
+- **Belirteç bloğu bölünmez (D4-B).** Pencere sınırı bir belirteç bloğunun (`[A1]`, `[A1,
+  A2]`) içine düşmez. Bir değerden hemen sonra gelen blok o değerin penceresindedir; sınır
+  bloğun ardından aranır. Blok içindeki virgül pencere ya da iddia sınırı değildir. Yalnız
+  sınırın konumu değişir; değer, alıntı ve ofsetler aynıdır. `4 hours [A1] - 10 hours after
+  dosing, rash was observed [A2]` cümlesinde A1 4 saate bağlanır, A2 `nearby`'da kalır.
+  `10 hours` önceki gibi `duration_not_identified_as_half_life` inceleme kalemidir.
+- **Kapsam notu.** Bu kurallar seçilmiş sentetik örneklerde sınandı (RULES ve testlerdeki
+  örnekler). Genel bir doğruluk ya da "yanlış temiz sonuç yok" garantisi değildir.
+  Kapsam dışı yazımlar hâlâ yanlış sınıflanabilir.
+- API yapısı değişmedi ve yeni gerekçe kodu yok.
+
 ## 8f. Sürüm 6 — beşinci denetim (M02-O1-R5) kuralları: özne karar kuralı
 
 8d ve 8e'deki özne kuralları bu bölümle değiştirildi. Çelişen eski cümleler
@@ -226,7 +267,8 @@ sessizce "özne yok" ya da "kayıt eşleşti" sonucuna dönüşüyordu:
    `from`, `to`, `versus`, `who`, `which`, `that`, `whose`. `of` tutulur (`the metabolite
    of drug b`). Örnek: `drug b in adults` → `drug b`.
 2. **Özne taşımayan aday (`ignore`), yalnız şu üç durumda:**
-   - aday bir miktardır (rakamla başlar: `4 hours`);
+   - aday bir miktardır (rakamla başlar: `4 hours`); [R6: 8g ile değişti — rakamla başlamak
+     miktar demek değildir; yalnız miktar sözcükleri atılır]
    - aday bütünüyle bir metabolit kodudur (`M1`);
    - baş öbeğin son sözcüğü bir topluluk adıdır (`Japanese subjects`, `Patients who …`).
 3. **Ad sözcükleri.** Bunlar atılır: belirleyiciler, genel sözcükler, koşul / grup / tür /
@@ -251,13 +293,14 @@ sessizce "özne yok" ya da "kayıt eşleşti" sonucuna dönüşüyordu:
 6. **Bağlam yedeği.** Önce değerin penceresi okunur. Pencerede özne yoksa ve ölçüm sözcüğü
    de yoksa cümlede önceki özne geçerlidir (8d).
 
-Bu kuralın sonucu: aynı yabancı özneye koşul (`monotherapy`, `in adults`, `in overdose in
-adults`, `10 mg`, `extended-release tablets` …) eklemek ya da silmek sonucu temize
-çeviremez. Aynı koşulla kayıt öznesi temiz kalır.
+Sınanan örneklerde (R5 çapraz matrisi ve `test_m02_audit_r5.py`) aynı yabancı özneye koşul
+(`monotherapy`, `in adults`, `in overdose in adults`, `10 mg`, `extended-release tablets` …)
+eklemek ya da silmek sonucu temize çevirmedi; aynı koşulla kayıt öznesi temiz kaldı. Bu,
+sınanmamış yazımlar için bir garanti değildir. [R6: ölçülmemiş genel ifade daraltıldı]
 
 **Çizgi ve aralık (D4).** 8e'deki çizgiler (`-`, `–`, `—`, `--`) bir çizgi
 ayırıcısıdır; ardından bir süre (sayı + zaman birimi) geliyorsa iki süreyi bağladığı
-kabul edilir ve ayırıcı sayılmaz (`4 hours - 6 hours`, `4 – 6 hours` aralıktır). Ardından
+kabul edilir ve ayırıcı sayılmaz [R6: 8g ile değişti — iki uçta da süre gerekir] (`4 hours - 6 hours`, `4 – 6 hours` aralıktır). Ardından
 süre olmayan sayılı bir ifade gelirse (`- 10 patients developed rash [A2]`, `– 10% of
 patients …`) ayrı iddiadır: belirteç bağlanmaz, `nearby`'da kalır, kapsam `none` olur.
 Sözcük içi tire (`half-life`, `extended-release`) ayırıcı değildir. İki nokta aralık
@@ -265,7 +308,8 @@ olamaz.
 
 **Bilinen sınırlar:**
 - Genel ilaç/marka adı ve kimyasal eşdeğerlik tanıma yoktur: kayıt adının farklı yazımı
-  ya da eş adı incelemeye düşer (aşırı inceleme, yanlış temiz yok).
+  ya da eş adı incelemeye düşer (aşırı inceleme). [R6: "yanlış temiz yok" ifadesi
+  ölçülmemiş genel garanti olduğu için kaldırıldı]
 - `4 hours -- 6 hours` değer ayrıştırmada aralık değildir (önceki davranış): iki çelişen
   değer olarak incelemeye düşer, A1 yalnız ikinci değere bağlanır.
 - Kesen edat ve sözcük listeleri sınırlıdır. Listede olmayan bir ortam sözcüğü ad

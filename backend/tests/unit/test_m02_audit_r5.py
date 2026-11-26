@@ -35,7 +35,7 @@ def _no_clean_no_5x(fp):
 
 
 def test_parser_version_bumped_for_behaviour_change():
-    assert PARSER_VERSION == "m02-text-parser/6"
+    assert PARSER_VERSION.startswith("m02-text-parser/") and int(PARSER_VERSION.rsplit("/", 1)[1]) >= 6
 
 
 # ---------------------------------------------------------------- D3-A --

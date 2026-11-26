@@ -740,6 +740,95 @@ Teknik testler uzman kabulü değildir. Klinik değerlendirme, gerçek veri kaps
 kaynaklı zaman aralığı tamamlanmış sayılmaz. Teknik yeniden denetimi Astra yapacak.
 Geri alma: bu R5 commit'inin revert'i. Kadir/Halil için ortak dosya talebi yok.
 
+#### M02-O1-R6 — Miktar, özne ve kaynak sınırları (Astra, denetlenen `90fda26`; teslim, yeniden denetim bekliyor)
+
+Önceki tur (R5, `90fda26`) için CI: çalıştırma 45686272050 başarılı. Katı backend 1071 testi
+geçti, atlanan yok; frontend 53 test ve derleme başarılı. Checkout
+`829c194a95a38fb8bfe5d5c64eaa05e78bed21cc`, dosya ağacı `9b25ce36…` (denetçinin log
+doğrulaması). SDP formu aynı dosya (2026-11-06); M-02 kısmı her değerin kaynağını ve
+özgün metnini istiyor, kapsam değişmedi.
+
+Sekiz bulgu önce `90fda26`'ün ayrı kopyasında (`git archive`; çalışma dalı geri alınmadı)
+yeniden üretildi, sonra düzeltildi. Yol gerçek router → JWT/yetki → servis → JSON; yalnız
+repository okuma sınırı sentetik. Her istekte zaman alanları boş `[SYNTHETIC] Drug B` de
+gönderildi. `5-zoralen` uydurma bir addır.
+
+| Örnek | `90fda26` (HTTP) | Şimdi (HTTP) | Tür |
+|---|---|---|---|
+| D3 `The half-life of 5-zoralen is 10 hours.` | Drug A altında temiz 10 sa, `computed` 50 sa | ölçüm yok, `subject_unresolved` | önceki sorun |
+| D3 `For 5-zoralen, …` | temiz 10 sa, 50 sa | `subject_unresolved` | önceki sorun |
+| D3 `For 10 mg drug b, …` | temiz 10 sa, 50 sa | `subject_unresolved` | önceki sorun |
+| D4-A `Rash was observed [A2] - 4 hours is the half-life [A1].` | `inline=[A2,A1]`, `references=[A2,A1]`, `value_window`, `true` | `inline=[A1]`, `references=[A1]`, `nearby=[A2]`, `value_window`, `true` | R5 regresyonu (`91789f3`'te doğruydu) |
+| D4-B aynı cümle `-`, `–`, `—`, `--` ile: `4 hours [A1] … 10 hours after dosing, rash was observed [A2]` | `inline=[]`, `nearby=[A1,A2]`, `none`, `false` | `inline=[A1]`, `references=[A1]`, `nearby=[A2]`, `value_window`, `true`; `10 hours` inceleme kalemi olarak kaldı, ofset [29,36) | önceki sorun |
+
+D4-A'nın `–` biçimi de R5 regresyonuydu; `—` ve `--` biçimleri doğruydu. Yakın örnekler de
+düzeldi: `For 10 mg 5-zoralen` ile kayıt adı `6-zoralen` iken `5-zoralen` metni temiz
+idi, şimdi çözülemedi.
+
+Olumlu kontroller önce de sonra da temiz:
+- kayıt adı `5-zoralen` iken `5-zoralen` → 4 sa, 20 sa;
+- `For 10 mg drug a`, `For the 10 mg dose`, `The half-life of drug a`;
+- `4-6 hours`, `4 – 6 hours` ve `4 hours - 6 hours` aralık, A1 bağlı;
+- `4 hours.[A1]`.
+
+`4 hours -- 6 hours` belgelenmiş sınırlama olarak aynı kaldı: iki değer incelemede, ≈5×
+yok, A1 yalnız ikinci değerde.
+
+Kök nedenler ve kararlar (yalnız `parser.py`):
+- (1) D3: "ilk sözcük rakamla başlıyor" bütün adayı miktar sayıyordu. Ad kalıntısı da
+  rakamla başlayan her sözcüğü siliyordu. İkisi de kaldırıldı; artık yalnız miktar
+  sözcükleri atılıyor (çıplak sayı, birim ya da `%` ile birleşik sayı, birim sözcükleri).
+  Özne kalıpları ondalık miktarı da kapsıyor (`2.5 mg drug b`; çapraz matriste bulundu).
+- (2) D4-A: R5'teki çizgi kuralı yalnız sağdaki süreye bakıyordu. Artık çizgi ancak bir
+  sürenin tam önünde bitip bir başkasının tam ardında başladığı yerde aralık sayılıyor.
+  Kural hem değerden önceki hem değerden sonraki çizgide aynı.
+- (3) D4-B: ayırıcısız iki değer arasında orta nokta sınırı değerin hemen ardındaki
+  `[A1]` bloğunun içine düşüyordu. Artık sınır bloğu bölmüyor: değerin hemen ardındaki
+  blok o değerin penceresinde, sınır bloğun ardından aranıyor. Blok içindeki virgül pencere
+  ve iddia sınırı değil (`[A1, A2]`; önceki sorun, çapraz matriste bulundu). Yalnız sınır
+  konumu değişti; ofset ve alıntılar aynı.
+
+Ayrıntı RULES.md 8g'de. 8f'de değişen cümleler işaretlendi. 8f'deki iki ölçülmemiş genel
+ifade ("koşul eklemek temize çeviremez", "yanlış temiz yok") sınanan örneklerle
+sınırlanacak biçimde daraltıldı.
+
+Sürüm: ayrıştırıcı `m02-text-parser/6` → `/7` (davranış değişti). API sözleşmesi
+`m02-timing-compare/2` aynı kaldı (tüketici notu API.md "Ayrıştırıcı 7"). Veri, şema,
+bağımlılık, CI, frontend, `main.py`, ortak fixture, service, calc ve models değişmedi.
+Önceden kaydedilmiş 94 durum değişmeden geçiyor.
+
+Değişen eski beklentiler: yalnız sürüm dizesi. İki entegrasyon testi `/6` → `/7`;
+`test_m02_audit_r5.py`'deki sürüm kontrolü "en az 6" oldu, tam değeri
+`test_m02_audit_r6.py` denetliyor. Davranış testleri gevşetilmedi.
+
+Kanıt (2026-11-26, yerel; ayrı sentetik PG `127.0.0.1:55440`, `medicallm_m02_synth`):
+
+| Kontrol | Sonuç |
+|---|---|
+| Yeniden üretim (23 sentetik metin, HTTP), `90fda26` kopyası → son kod | Önce 8/8 bulgu ve 2 yakın örnek hatalı; sonra 23/23 beklenen (`--` sınırı beklendiği gibi) |
+| R5 (22), R4 (27), R3 (26), R2 (20), D1–D6 (13) örnekleri, HTTP | Önceki çıktılarla birebir aynı (yalnız ayrıştırıcı sürümü farklı) |
+| R6 çapraz matris (99 metin, beklenti çalıştırmadan önce yazıldı): miktar ↔ sayısal ad ↔ miktar+ad, aynı/farklı kayıt; ayrı iddia ↔ aralık; ayırıcıdan önce/sonra kaynak; 5 çizgi türü | `90fda26`'te 33 hatalı; şimdi 99/99 |
+| Önceki taramalar (R3 75, R4 323, R5 347, 33 sıradan cümle) | Değişmedi (R5'te belgelenmiş 2 `--` örneği, sıradan cümlelerde önceki kural gereği işaretli 2 örnek) |
+| Yeni testler | `test_m02_audit_r6.py` (D3: 7 yabancı + 6 kayıt öznesi × 4 kalıp, yalnız miktar öbekleri; D4-A: 5 çizgi türü, gerçek aralıklar, `--` sınırı; D4-B: 5 çizgi türü, ofsetler, `[A1, A2]`; birleşik), `test_m02_audit_r6_http_pg.py` (HTTP → sentetik PG; D3 ve 4 çizgi türüyle D4) |
+| Birim | **936 geçti** |
+| Katı tam paket (`MEDICALLM_STRICT_TESTS=1`) | **1162 geçti, 0 atlandı** (62 sn) |
+| GitHub CI | Son commit için PR sayfasında |
+
+Koşulamayanlar: gerçek PostgreSQL/DrugBank (kural gereği açılmadı). Bağımsız ajan taraması
+kullanım sınırı nedeniyle yapılamadı; çapraz matrisler kendi yazdığım beklentilerle
+koşuldu.
+
+Bilinen sınırlar:
+- Genel ilaç/marka adı ve kimyasal eşdeğerlik tanıma yoktur.
+- `4 hours -- 6 hours` aralık değildir.
+- Bir değerden hemen önce gelen belirteç (`[A1] 4 hours`) önceki pencerede kalır.
+- Kesen edat ve ortam sözcüğü listeleri sınırlıdır.
+- Sonuçlar seçilmiş sentetik örneklere dayanır; genel doğruluk oranı değildir.
+
+Teknik testler uzman kabulü değildir. Gerçek veri kapsamı, ekran, kaynaklı zaman aralığı ve
+≥%90 uzman hedefi tamamlanmış sayılmaz. Teknik yeniden denetimi Astra yapacak. Geri alma: bu
+R6 commit'inin revert'i. Kadir/Halil için ortak dosya talebi yok.
+
 ---
 
 # Tarihsel raporlar (değiştirilmedi)

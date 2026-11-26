@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/6"
+PARSER_VERSION = "m02-text-parser/7"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -346,10 +346,10 @@ _GOVERNING_HEDGE = re.compile(
 _SUBJECT_OF = re.compile(
     r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak(?:\s+\w+){0,2})\s+(?:of|for)\s+"
     # R4: the stop word must be a whole word ('sulfate' does not stop at 'at')
-    r"((?:[\w-]+\s+){0,5}?[\w-]+)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
+    r"((?:[\w-]+(?:[.,]\d+)*\s+){0,5}?[\w-]+)(?=\s+(?:is|was|are|were|has|had|ranges?|ranged|varies|varied|averages?|in|at"
     r"|after|following|of|for|with|when|on|was)\b|\s*[,;:(]|\s*$)", re.I)
 _SUBJECT_HAS = re.compile(
-    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+\s+){0,4}[\w-]+)\s+"
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+(?:[.,]\d+)*\s+){0,4}[\w-]+(?:[.,]\d+)*)\s+"
     r"(?:has|have|had|exhibits?|shows?"
     r"|displays?|possess(?:es)?)\s+(?:an?\s+|the\s+)?(?:[\w-]+\s+){0,2}(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t\s?max)",
     re.I)
@@ -379,22 +379,22 @@ _GENERIC_SUBJECT = {
 _APOS = "['’ʼ`´]"
 _KW_POSS = (r"(?i:half[\s-]?li(?:fe|ves)|t\s?1/2|t½|t\s?max|time to peak|peak(?:\s+\w+){0,2}\s+(?:concentrations?"
             r"|levels?)|c\s?max)")
-_SUBJECT_POSSESSIVE = re.compile(rf"((?:[\w-]+\s+){{0,2}}[\w-]+){_APOS}s\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
+_SUBJECT_POSSESSIVE = re.compile(rf"((?:[\w-]+(?:[.,]\d+)*\s+){{0,2}}[\w-]+(?:[.,]\d+)*){_APOS}s\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
 _SUBJECT_PLURAL_POSSESSIVE = re.compile(
-    rf"((?:[\w-]+\s+){{0,4}}[\w-]+){_APOS}(?!s\b)\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
+    rf"((?:[\w-]+(?:[.,]\d+)*\s+){{0,4}}[\w-]+(?:[.,]\d+)*){_APOS}(?!s\b)\s+(?:[\w-]+\s+){{0,4}}{_KW_POSS}", re.I)
 _SUBJECT_REACHES = re.compile(
-    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+\s+){0,2}[\w-]+)\s+"
+    r"(?:^\s*(?:\[[^\]]*\]\s*)?|[,;(]\s*|\b(?:and|but|while|whereas)\s+)((?:[\w-]+(?:[.,]\d+)*\s+){0,2}[\w-]+(?:[.,]\d+)*)\s+"
     r"(?:reach(?:es|ed)?|attain(?:s|ed)?|achiev(?:es|ed)?)\s+(?:its\s+|their\s+)?(?:peak|maximum|maximal|c\s?max)\b",
     re.I)
 _SUBJECT_FRAME = re.compile(
     r"(?:^\s*(?:\[[^\]]*\]\s*)?|[.;:,]\s*|\b(?:and|but|while|whereas)\s+)(?:for|in)\s+"
-    r"((?:[\w-]+\s+){0,14}[\w-]+)\s*,", re.I)
+    r"((?:[\w-]+(?:[.,]\d+)*\s+){0,14}[\w-]+(?:[.,]\d+)*)\s*,", re.I)
 _FRAME_PREPOSITION = re.compile(
     r"\s+(?:in|with|without|after|during|following|at|on|under|before|among|receiving|taking|given|when|if"
     r"|by|via|from|to|of)\s+", re.I)
 _FRAME_SITUATION_OF = re.compile(
     r"\b(?:overdose|overdosage|intoxication|poisoning|use|administration|treatment|therapy|infusion|dosing)"
-    r"\s+of\s+((?:[\w-]+\s+){0,3}[\w-]+)", re.I)
+    r"\s+of\s+((?:[\w-]+(?:[.,]\d+)*\s+){0,3}[\w-]+(?:[.,]\d+)*)", re.I)
 _FRAME_NOT_SUBJECT = {
     "general", "summary", "practice", "addition", "particular", "contrast", "example", "instance", "short",
     "conclusion", "comparison", "case", "cases", "study", "studies", "trial", "trials", "state", "states", "vivo",
@@ -447,7 +447,15 @@ def _subject_residual(phrase: str, drop_salts: bool = True) -> List[str]:
     return [w for w in words if w not in _GENERIC_SUBJECT and (w not in _SALT or not drop_salts)
             and w not in _FRAME_NOT_SUBJECT and w not in _DESCRIPTOR_WORD
             and w not in _DETERMINER and not w.startswith("_") and not w.endswith("_")
-            and not w[0].isdigit() and not re.fullmatch(r"[a-z]{1,3}-?\d+[a-z]?", w)]
+            and not _AMOUNT_WORD.fullmatch(w) and not re.fullmatch(r"[a-z]{1,3}-?\d+[a-z]?", w)]
+
+
+# R6 (M02-D3): only an amount is dropped from a name ('10', '10-mg', '4.5',
+# '20%'); a word that starts with a digit but continues with letters
+# ('5-zoralen') is a name word.
+_AMOUNT_WORD = re.compile(
+    r"\d+(?:[.,]\d+)*(?:-?(?:mg|g|mcg|ug|µg|ml|l|kg|iu|units?|mmol|h|hr|hrs|hours?|min|minutes?|days?|weeks?"
+    r"|months?|years?|x|fold|%))?", re.I)
 
 
 # R5 (M02-D3): words that describe a product, an amount or a dosage form, not
@@ -487,8 +495,11 @@ def _judge_subject(cand: str, known: Sequence[str], known_salted: Sequence[str] 
     cand = _CANDIDATE_TAIL.sub("", cand.strip())
     low = cand.lower()
     words = re.findall(r"[\w-]+", low)
-    if not words or words[0][0].isdigit():
-        return "ignore"  # a quantity ('4 hours')
+    # R6 (M02-D3): a leading digit is not a quantity by itself ('5-zoralen',
+    # '10 mg drug b'); amounts are dropped word by word in _subject_residual and
+    # a candidate made only of amounts/units leaves no name word ('4 hours').
+    if not words:
+        return "ignore"
     if _METABOLITE_CODE.match(cand.strip()) or _POPULATION_NOUN.fullmatch(words[-1]):
         return "ignore"  # 'M1', 'Japanese subjects'
     if any(w in _PLURAL_DRUG_NOUN for w in words):
@@ -902,20 +913,27 @@ def _condition_spans(text: str) -> List[Span]:
 
 # R4 (M02-D4): separators of a statement aside. Not a hyphen inside a word
 # ('half-life', 'extended-release') and not a numeric range ('4-6', '4 – 6').
-# R5 (M02-D4): a spaced '-' / '–' followed by a number is a range only when a
-# duration starts right after it ('4 hours - 6 hours'); '4 hours - 10 patients
-# developed rash' is a separate statement (_dash_starts_duration).
+# R5/R6 (M02-D4): a dash is not a separator only when it joins two parsed
+# durations (_dash_joins_durations); '4 hours - 10 patients developed rash' and
+# 'Rash was observed [A2] - 4 hours is ...' are separate statements.
 _ASIDE_SEPARATOR = re.compile(r":(?=\s)|\s*—\s*|\s+–\s+|\s*--\s*|\s+-\s+")
 _CLAIM_BREAK = re.compile(r"[.!?:](?=\s)|—|\s–\s|--|\s-\s")
 
 
-def _dash_starts_duration(text: str, sep: re.Match) -> bool:
-    """True for a dash separator ('-', '–', '—', '--') directly followed by a
-    duration (number + time unit): that dash joins two durations, it does not
-    start a separate claim. A colon is never a range."""
+def _dash_joins_durations(text: str, sep: re.Match, durations: Sequence[Tuple[int, int]]) -> bool:
+    """R6 (M02-D4): True for a dash ('-', '–', '—', '--') that stands BETWEEN two
+    parsed durations: one ends right before it and another starts right after
+    it ('4 hours -- 6 hours'). A duration on one side only is not a range
+    ('Rash was observed [A2] - 4 hours is the half-life', '4 hours [A1] - 10
+    hours after dosing'). A colon is never a range. (A range that the value
+    parser reads as one expression, '4 hours - 6 hours', has no dash between
+    two durations: it lies inside the value.)"""
     if sep.group(0).strip() not in ("-", "–", "—", "--"):
         return False
-    return bool(DURATION_RE.match(text, sep.end()))
+    left = len(text[:sep.start()].rstrip())
+    rest = text[sep.end():]
+    right = sep.end() + (len(rest) - len(rest.lstrip()))
+    return any(e == left for _, e in durations) and any(s == right for s, _ in durations)
 _SENTENCE_STOP = re.compile(r"[.!?](?=\s)")
 _FINITE_WORD = re.compile(
     r"\b(?:is|are|was|were|has|have|had|will|would|can|could|may|might|must|should|shall|do|does|did|see|cf)\b",
@@ -986,16 +1004,23 @@ def _windows(sentence: str, durations: List[Span], all_durations: List[Span]) ->
         start = max([i + 1 for i in top_semis if i < d.start], default=0)
         end = min([i for i in top_semis if i >= d.end], default=len(sentence))
         return [Span(start, end)], [False]
+    # R6 (M02-D4): a reference token block is never split by a window boundary,
+    # and a block right after a value ('4 hours [A1] - ...') belongs to that
+    # value's window. Offsets are unchanged; only the boundary position moves.
+    blocks = [Span(x.start(), x.end()) for x in re.finditer(_TOKEN_BLOCK, sentence)]
     seps = [Span(m.start(), m.end()) for m in _SEPARATOR.finditer(sentence)
-            if not any(x.start <= m.start() and m.end() <= x.end for x in all_durations)]
+            if not any(x.start <= m.start() and m.end() <= x.end for x in all_durations)
+            and not any(k.start <= m.start() < k.end for k in blocks)]
     cond_spans = _condition_spans(sentence)
     bounds: List[Tuple[int, int, bool]] = []
     for a, b in zip(durations, durations[1:]):
-        search_from = a.end
-        after = sentence[a.end:b.start]
+        tail = re.match(rf"(?:\s*{_TOKEN_BLOCK})+", sentence[a.end:b.start])
+        a_end = a.end + tail.end() if tail else a.end  # the value with its own tokens
+        search_from = a_end
+        after = sentence[a_end:b.start]
         stripped = after.lstrip()
         if stripped.startswith("("):
-            open_at = a.end + (len(after) - len(stripped))
+            open_at = a_end + (len(after) - len(stripped))
             close_at = _closing_paren(sentence, open_at)
             if b.start < close_at:
                 bounds.append((open_at, open_at + 1, False))
@@ -1012,9 +1037,11 @@ def _windows(sentence: str, durations: List[Span], all_durations: List[Span]) ->
             bounds.append((s.start, s.end, unsure))
         else:
             # no separator: midpoint snapped to a space; always uncertain
-            mid = (a.end + b.start) // 2
-            sp = sentence.rfind(" ", a.end, mid + 1)
-            mid = sp if sp > a.end else mid
+            mid = (a_end + b.start) // 2
+            sp = sentence.rfind(" ", a_end, mid + 1)
+            mid = sp if sp > a_end else mid
+            inside = next((k for k in blocks if k.start < mid < k.end), None)
+            mid = inside.end if inside else mid  # never inside '[...]'
             bounds.append((mid, mid, True))
     windows, uncertain = [], []
     start = 0
@@ -1364,6 +1391,7 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
                     return i
             return 0
 
+        dur_spans = [(x.start(), x.end()) for x in matches]
         trailing = _TRAILING_TOKENS.search(stext)
         trailing_start = trailing.start(1) if trailing else len(stext)
         trailing_tokens = reference_tokens(trailing.group(1)) if trailing else []
@@ -1670,14 +1698,16 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # lower-case next sentence is not split by split_sentences); not an
             # abbreviation ('e.g.', 'approx.', 'et al.') and not inside brackets.
             breaks = [x.end() for x in _CLAIM_BREAK.finditer(stext, win.start, m.start())
-                      if _real_break(stext, x.start(), depth) and not _dash_starts_duration(stext, x)]
+                      if _real_break(stext, x.start(), depth) and not _dash_joins_durations(stext, x, dur_spans)]
             if breaks:
                 claim_start = max(claim_start, breaks[-1])
             # the claim ends at the next clause start / sentence stop on the
             # value's own bracket level (a comma inside '(n = 12, SD 1.1)' does not end it)
             claim_end = claim_end_limit
+            in_block = [Span(b.start(), b.end()) for b in re.finditer(_TOKEN_BLOCK, stext)]
             for x in _CLAUSE_START.finditer(stext, m.end(), claim_end_limit) if m.end() < claim_end_limit else ():
-                if depth[x.start()] == value_depth:
+                # R6: the comma of a token list ('[A1, A2]') does not end the claim
+                if depth[x.start()] == value_depth and not any(k.start <= x.start() < k.end for k in in_block):
                     claim_end = x.start()
                     break
             for x in _SENTENCE_STOP.finditer(stext, m.end(), claim_end) if m.end() < claim_end else ():
@@ -1713,7 +1743,7 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # value's claim ('4 hours — adverse events are described elsewhere
             # [A2]'), an annotation segment ('— in adults —') stays in it.
             seps = [x for x in _ASIDE_SEPARATOR.finditer(stext, m.end(), trailing_start)
-                    if depth[x.start()] == 0 and not _dash_starts_duration(stext, x)]
+                    if depth[x.start()] == 0 and not _dash_joins_durations(stext, x, dur_spans)]
             for si, sep_m in enumerate(seps):
                 seg_end = seps[si + 1].start() if si + 1 < len(seps) else trailing_start
                 semi = stext.find(";", sep_m.end(), seg_end)
