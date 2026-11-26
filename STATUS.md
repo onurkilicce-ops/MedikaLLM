@@ -821,7 +821,6 @@ koşuldu.
 Bilinen sınırlar:
 - Genel ilaç/marka adı ve kimyasal eşdeğerlik tanıma yoktur.
 - `4 hours -- 6 hours` aralık değildir.
-- Bir değerden hemen önce gelen belirteç (`[A1] 4 hours`) önceki pencerede kalır.
 - Kesen edat ve ortam sözcüğü listeleri sınırlıdır.
 - Sonuçlar seçilmiş sentetik örneklere dayanır; genel doğruluk oranı değildir.
 
