@@ -28,7 +28,7 @@ yok, N1–N7 engelleyici olmayan. Kullanıcı yetkisiyle Claude hepsini düzeltt
 - Canlı DOM → HTTP → PG akışı (jsdom/Node `AbortSignal` uyumu) geçiyor.
 - Diğer düzeltmeler: emc 885 kaynağı 4.2; arama `lower()`; kontrol karakteri 422;
   öneri cümlesi ve durum etiketi; tr-TR sayı biçimi.
-- Sonuçlar: katı tam paket 1519 geçti / 0 atlandı; R2–R7 ve D1–D6 HTTP setleri değişmedi; frontend 67 test ve derleme geçti; canlı DOM → PG akışı 6/6. CI sonucu için düzeltme raporuna bakın.
+- Sonuçlar: katı tam paket 1519 geçti / 0 atlandı; R2–R7 ve D1–D6 HTTP setleri değişmedi; frontend 67 test ve derleme geçti; canlı DOM → PG akışı 6/6. CI run 45970210887 (219a757) başarılı.
 - **Klinik/uzman kabulü yok.** ≥%90 uzman kabulü ve gerçek veri kapsamı açıktır.
 
 Ayrıntı ve Astra kontrol listesi:

@@ -5,7 +5,8 @@ olmayan bulgu (N1–N7) düzeltildi. Hepsi commit edildi, PR #5'e push edildi ve
 yeşil. Teknik kabul kararı Astra'nın bu rapordaki kontrollerine bırakılmıştır.**
 
 Bu teslim klinik kabul anlamına gelmez. Form A ≥%90 uzman kabulü yapılmadı.
-Sentetik testlerin geçmesi bu hedefi karşılamaz.
+Sentetik testlerin geçmesi bu hedefi karşılamaz. Bu raporu ve STATUS'u ekleyen son
+commit yalnız belgedir; kod `219a757` ile aynıdır.
 
 - Tarih: 27 Kasım 2026
 - Uygulayıcı: Claude (Onur Kılıç adına; git kimliği `onur kılıç`)
@@ -24,11 +25,11 @@ Sentetik testlerin geçmesi bu hedefi karşılamaz.
 | Hedef / base | `team-test/2026-11-23-stage-0-1` / `c86dcc121047fe94a87b38245e8f467045afdb07` |
 | Önceki PR head (R7) | `c0910da6657c50bbed526f7a19c8a65540d9fa50` |
 | Commit 1 — Astra teslimi (değiştirilmeden) | `7be156b8d89e71f644fb4d6962d04bf59e9d54bf` (tree `9b8a78f5d6c47109de8de4fc50f1ae2209216995` = teslim manifestindeki `staged_tree`) |
-| Commit 2 — denetim düzeltmeleri | `__FIX_SHA__` |
-| CI | `__CI__` |
+| Commit 2 — denetim düzeltmeleri | ``219a757b4dcbc7b186bc30e3852b02b21bdcf42d`` |
+| CI (219a757) | Run 45970210887 **başarılı**: "Backend tests (locked deps + synthetic PostgreSQL)" (adım "M02 React DOM to PostgreSQL flow" dahil) ve "Frontend tests + build". GitHub test merge commit'i: `eb51db3171b97a44b7761bdc637eb060100f6724` |
 
 Astra teslimi ayrı commit olarak, olduğu gibi tutuldu. Böylece düzeltmeler kendi
-diff'iyle incelenebilir: `git diff 7be156b __FIX_SHORT__`.
+diff'iyle incelenebilir: `git diff 7be156b 219a757`.
 
 ## 2. Bulgular ve düzeltmeler
 
@@ -90,7 +91,7 @@ Expected signal to be an instance of AbortSignal` ile düşüyordu. jsdom'un
 `AbortSignal` vardır. `vite.m02.config.js` → `setupFiles: ['./e2e/setup.js']`.
 
 **Kanıt.** Sentetik demo sunucusuna karşı canlı akış 6/6 geçti (yerel Node 24). CI'da
-(Node 20) aynı adım `__CI_E2E__`.
+(Node 20) aynı adım `başarılı`.
 
 ### B3 — commit/push/CI yok (süreç engeli) → düzeltildi
 
@@ -161,7 +162,7 @@ Testler: `frontend/src/timing/TimingAuditFixes.test.jsx` (N2, N6, N7).
 | Frontend testleri | 67 geçti (7 dosya) |
 | Frontend derleme | başarılı |
 | React DOM → HTTP → yetki → servis → sentetik PG canlı akışı | 6/6 geçti (yerel, `--seed` ile yeniden kurulan demo sunucusu 127.0.0.1:18102) |
-| GitHub CI | __CI__ |
+| GitHub CI | Run 45970210887 başarılı (219a757; backend + M02 DOM→PG akışı + frontend) |
 
 Gerçek DrugBank kümesi başlatılmadı, sayılmadı, içe aktarılmadı, değiştirilmedi.
 Lisanslı metin, anahtar, parola veya hasta verisi Git'e ya da bu rapora girmedi.
@@ -170,10 +171,10 @@ Tüm test metinleri `[SYNTHETIC]` etiketlidir.
 ## 4. Astra için kontrol listesi
 
 1. **Sürüm.**
-   - `git log --oneline c0910da..__FIX_SHORT__` iki commit göstermeli.
+   - `git log --oneline c0910da..219a757` iki commit göstermeli.
    - `git rev-parse 7be156b^{tree}` = `9b8a78f5d6c47109de8de4fc50f1ae2209216995`
      olmalı (teslim değiştirilmeden uygulandı).
-2. **Düzeltme diff'i.** `git diff 7be156b __FIX_SHORT__`: yalnız §2'deki dosyalar
+2. **Düzeltme diff'i.** `git diff 7be156b 219a757`: yalnız §2'deki dosyalar
    değişmeli. Şema, migration, bağımlılık ve kilit dosyalarına dokunulmadı.
 3. **B1.** Aşağıdaki gibi kendi örneklerinle dene (`parse_field("half_life", "[SYNTHETIC] …",
    subject_names=["[SYNTHETIC] Drug A"])`). Özellikle şunlara bak:
