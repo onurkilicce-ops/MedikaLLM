@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/9",
+  "parser_version": "m02-text-parser/10",
   "drugs": [
     {
       "position": 0,
@@ -181,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/9"
+          "parser_version": "m02-text-parser/10"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -208,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/9"
+          "parser_version": "m02-text-parser/10"
         }
       ],
       "derived": [
@@ -443,7 +443,11 @@ POST /api/timing/compare           (veritabanı okunamıyor)
 
 ## M-02 ekranı: arama ve açık kaynaklı öneriler (Astra teslimi)
 
-`compare` sözleşmesi `/2` olarak kalır; ayrıştırıcı `/9` olmuştur. Compare içindeki
+`compare` sözleşmesi `/2` olarak kalır; ayrıştırıcı `/9` olmuştu, bağımsız denetim
+düzeltmeleriyle `/10` oldu. `/10`'da anaforik ya da yok özne (`Its half-life`,
+`Half-life: 6 hours`) önceki metindeki ilaç biçimli kanıtı miras alır (`drug b`,
+`compound c`, `the formulation of drug b`); belirli `The half-life` miras almaz
+(RULES 8j). Alan ve kod değişmedi. Compare içindeki
 `timing_advice=not_evaluated` sadece bu isteğin öneri değerlendirmediğini anlatır.
 Ekran ayrı `advice` isteğinin sonucunu gösterir; eski tüketiciler etkilenmez.
 M-06/C1 entegrasyonu bu teslimde yapılmaz. Her üç uç aynı Bearer token/doktor
@@ -452,8 +456,11 @@ profili kontrolünü ve salt okunur repository yolunu kullanır.
 ### `GET /api/timing/drugs?q=...`
 
 `q`: 2–100 karakter, kenar boşlukları temizlenir, en az 2 dolu karakter.
-Kimlik, kayıt adı ve saklı eş ad üzerinde büyük/küçük harfsiz alt dize araması;
-SQL `%`/`_` jokerleri kullanıcı girdisinde harf olarak aranır. En fazla 20 kayıt.
+Kontrol karakteri (NUL dahil) içeren `q` veritabanına gitmeden 422 alır.
+Kimlik, kayıt adı ve saklı eş ad üzerinde büyük/küçük harfsiz alt dize araması.
+Sorgu, saklı `name_lower`/`synonym_lower` sütunlarıyla aynı biçimde `lower()` ile
+normalize edilir (`Süß` → `süß`). SQL `%`/`_` jokerleri kullanıcı girdisinde harf
+olarak aranır. En fazla 20 kayıt.
 
 ```json
 {"items":[],"limited":false}

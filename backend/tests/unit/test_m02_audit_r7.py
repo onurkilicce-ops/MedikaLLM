@@ -47,7 +47,7 @@ def _clean_4h(fp):
 
 
 def test_parser_version_bumped_for_behaviour_change():
-    assert PARSER_VERSION == "m02-text-parser/9"
+    assert PARSER_VERSION.startswith("m02-text-parser/") and int(PARSER_VERSION.rsplit("/", 1)[1]) >= 9
 
 
 # ------------------------------------------------------- the four findings --

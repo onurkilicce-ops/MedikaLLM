@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { timingRequest } from './client';
-import { quantity, conditionText, httpError, safeUrl, fieldStatus, coverageStatus } from './format';
+import { quantity, conditionText, httpError, safeUrl, fieldStatus, coverageStatus, num, adviceStatusText } from './format';
 import Timeline from './Timeline';
 import './timing.css';
 
@@ -17,12 +17,12 @@ export function Measurement({m, derived}) {
   const source = m.source;
   return <article className={`m02-measure ${m.review_required ? 'm02-review' : ''}`} id={`m02-${m.measurement_id}`}>
     <h4>{m.measure_type === 'tmax' ? 'Tmax' : 'Yarı ömür'}: {m.approximate ? '≈ ' : ''}{quantity(m.hours)}
-      {m.dispersion && ` ± ${m.dispersion.value_hours} sa (yayılım türü belirtilmemiş)`}</h4>
+      {m.dispersion && ` ± ${num(m.dispersion.value_hours)} sa (yayılım türü belirtilmemiş)`}</h4>
     <p>Özgün değer: {quantity(m.original, m.original.unit)}{m.original.lower_unit ? ` (alt sınır birimi: ${m.original.lower_unit})` : ''}</p>
     <p>{conditionText(m.conditions)}</p>
     {m.review_required && <p><strong>İnceleme gerekli:</strong> {m.review_reasons.join(', ')}</p>}
     {derived && (derived.status === 'computed' ? <p><strong>Hesaplanan ≈5×: {quantity(derived.hours)}</strong>
-      {derived.dispersion && ` ± ${derived.dispersion.value_hours} sa (istatistik türü belirtilmemiş)`}</p>
+      {derived.dispersion && ` ± ${num(derived.dispersion.value_hours)} sa (istatistik türü belirtilmemiş)`}</p>
       : <p>≈5× hesaplanmadı: {derived.not_computed_reasons.join(', ')}</p>)}
     {derived && <details><summary>Hesabın varsayımları ve sınırları</summary><p>{derived.interpretation}</p>
       <ul>{derived.assumptions.map(a => <li key={a}>{a}</li>)}</ul></details>}
@@ -173,11 +173,13 @@ export default function TimingPage() {
       {(advice || adviceError) && <section className="m02-card"><h2>Kaynaklı zaman aralığı değerlendirmesi</h2>
         <p>Bu bölüm, Tmax veya yarı ömürden hesaplanmaz. Zaman ayırmak bütün etkileşimleri çözmez; uzman değerlendirmesi gerekir.</p>
         {adviceError && <p role="alert">Öneri kontrolü tamamlanmadı: {adviceError}</p>}
-        {advice && <><p>Durum: {advice.status === 'evaluated' ? 'Seçilen kapsam katalogda değerlendirildi' : advice.status === 'partially_evaluated' ? 'Kısmen değerlendirildi' : 'Koşullar eksik; değerlendirme tamamlanmadı'}.</p>
+        {advice && <><p>Durum: {adviceStatusText(advice)}.</p>
           {advice.advice.length===0 && <p>Bu durumda kaynakla doğrulanmış zaman aralığı önerisi belirlenemedi. Bu, etkileşim olmadığı veya birlikte kullanılabileceği anlamına gelmez.</p>}
           {advice.advice.map((a,i)=><article className="m02-measure" key={`${a.rule_id}-${i}`}>
-            <h3>{selected.find(x=>x.drug_id===a.subject_drug_id)?.name} → {foods[a.other_id] || a.other_name}</h3>
-            <p className="m02-interval">İlk ilaç, diğer öğeden <strong>{quantity(a.interval_hours)} {a.direction==='before'?'önce':'sonra'}</strong>.</p>
+            <h3>{selected.find(x=>x.drug_id===a.subject_drug_id)?.name || a.subject_drug_id} → {foods[a.other_id] || a.other_name}</h3>
+            {/* The subject is named: the direction must not depend on selection order. */}
+            <p className="m02-interval" data-testid="advice-interval">Kaynağa göre <strong>{selected.find(x=>x.drug_id===a.subject_drug_id)?.name || a.subject_drug_id}</strong>,
+              {' '}«{foods[a.other_id] || a.other_name}» öğesinden <strong>{quantity(a.interval_hours)} {a.direction==='before'?'önce':'sonra'}</strong>.</p>
             <ul>{a.conditions.map(c=><li key={c}>{c}</li>)}</ul>
             <details><summary>Önerinin açık kaynağı</summary><blockquote>{a.source.excerpt}</blockquote>
               <SourceLink url={a.source.url}>{a.source.title}</SourceLink><p>{a.source.section} · Etiket: {a.source.label_updated} · Açılarak kontrol: {a.source.checked_on}</p>

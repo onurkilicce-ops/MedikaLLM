@@ -14,6 +14,26 @@ bağımsız olarak yeniden doğrulanmadı.
 
 ## Tur 1 — Güncel ilerleme kaydı (başlangıç 2026-11-24)
 
+### M-02 denetim düzeltmeleri — 27 Kasım 2026 (Claude; Astra kontrolü bekliyor)
+
+Claude'un bağımsız denetimi Astra teslimini "teknik teslime hazır değil" buldu.
+Bulgular: B1 yanlış ilaç aidiyeti, B2 canlı akış/CI adımı başarısız, B3 commit/CI
+yok, N1–N7 engelleyici olmayan. Kullanıcı yetkisiyle Claude hepsini düzeltti:
+
+- Astra teslimi değiştirilmeden `7be156b` olarak commit edildi (tree `9b8a78f5…`).
+  Düzeltmeler ayrı commit'te.
+- Parser `/10`: miras yalnız anaforik/yok özneye ve yalnız ilaç biçimli kanıtla
+  uygulanır (RULES 8j). Bilinen sınır: önceki cümledeki kodsuz gerçek ilaç adı miras
+  yoluyla yakalanmaz.
+- Canlı DOM → HTTP → PG akışı (jsdom/Node `AbortSignal` uyumu) geçiyor.
+- Diğer düzeltmeler: emc 885 kaynağı 4.2; arama `lower()`; kontrol karakteri 422;
+  öneri cümlesi ve durum etiketi; tr-TR sayı biçimi.
+- Sonuçlar: katı tam paket 1519 geçti / 0 atlandı; R2–R7 ve D1–D6 HTTP setleri değişmedi; frontend 67 test ve derleme geçti; canlı DOM → PG akışı 6/6. CI sonucu için düzeltme raporuna bakın.
+- **Klinik/uzman kabulü yok.** ≥%90 uzman kabulü ve gerçek veri kapsamı açıktır.
+
+Ayrıntı ve Astra kontrol listesi:
+[M02_Claude_Duzeltme_Raporu.md](docs/M02_Claude_Duzeltme_Raporu.md).
+
 ### M-02 tamamlama teslimi — 27 Kasım 2026 (Astra; aktarım/doğrulama engelli)
 
 Kullanıcının yeni yetkisiyle Astra bu görevde uygulayıcıdır; Claude bağımsız

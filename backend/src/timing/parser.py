@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/9"
+PARSER_VERSION = "m02-text-parser/10"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -468,7 +468,8 @@ _AMOUNT_WORD = re.compile(
 
 # R5 (M02-D3): words that describe a product, an amount or a dosage form, not
 # a name ('the extended-release form', 'drug b 10 mg').
-_DESCRIPTOR_WORD = {"form", "forms", "dosage", "preparation", "preparations", "presentation", "strength",
+_DESCRIPTOR_WORD = {"properties", "characteristics", "proportional", "proportionally", "increases",
+                    "decreases", "form", "forms", "dosage", "preparation", "preparations", "presentation", "strength",
                     "mg", "g", "mcg", "ug", "µg", "ml", "l", "kg", "iu", "units", "unit", "mmol", "dose", "doses",
                     "aged", "age", "ages", "years", "year", "months", "month", "weeks", "week", "days", "day", "old",
                     "hours", "hour", "h", "hr", "hrs", "min", "minutes",
@@ -481,7 +482,14 @@ _DESCRIPTOR_WORD = {"form", "forms", "dosage", "preparation", "preparations", "p
                     "food", "meal", "meals", "breakfast", "water", "increasing", "decreasing", "repeated",
                     "discontinuation", "cessation", "withdrawal", "initiation", "start", "completion", "end",
                     "maintenance", "loading", "induction", "daily", "once", "twice", "first", "second", "third",
-                    "continuous", "intermittent", "concomitant", "topical", "application", "instillation", "drop"}
+                    "continuous", "intermittent", "concomitant", "topical", "application", "instillation", "drop",
+                    # R8: pharmacokinetic section labels ('Excretion:', 'Protein binding:')
+                    "excretion", "metabolism", "protein", "binding", "bioavailability", "pharmacodynamics",
+                    "clearance", "interactions", "interaction", "mechanism", "action", "toxicity", "note",
+                    "notes", "comment", "comments", "important", "warning", "warnings", "precautions",
+                    "special", "renal", "hepatic", "mainly", "extensive", "extensively", "rapid", "rapidly",
+                    "slow", "slowly", "well", "poorly", "minimal", "negligible", "complete", "incomplete",
+                    "absolute", "relative", "systemic", "exposure"}
 # R5: the head of a candidate ends before a prepositional condition ('drug b in
 # adults' -> 'drug b'); 'of' is kept ('the metabolite of drug b').
 _CANDIDATE_TAIL = re.compile(
@@ -594,8 +602,10 @@ def _frame_heads(phrase: str) -> List[str]:
 
 
 def _clean_phrase(phrase: str) -> str:
-    """Reference tokens and round-bracket annotations removed ('(n=12)', '(oral)')."""
-    return re.sub(r"\([^()]*\)", " ", re.sub(_TOKEN_BLOCK, " ", phrase))
+    """Reference tokens and round-bracket annotations removed ('(n=12)', '(oral)');
+    R8: a possessive 's is removed so it is not read as a name word."""
+    text = re.sub(r"\([^()]*\)", " ", re.sub(_TOKEN_BLOCK, " ", phrase))
+    return re.sub(rf"{_APOS}s\b", "", text)
 
 
 def _loose_candidates(phrase: str) -> List[str]:
@@ -692,6 +702,66 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
     return cands + _uncovered_frames(before, after)
 
 
+_NOT_AN_OWNER_PAREN = re.compile(
+    r"^\s*(?:see|cf\.?|as|e\.g\.?|i\.e\.?)\b|\b(?:section|table|figure|fig\.?|appendix|ref(?:erence)?s?)\b"
+    rf"|^\s*{_KW_POSS}\s*$|^\s*(?:c\s?max|auc\w*|cl|vd|pk|pd|t\s?max|t1/2|t½)\s*$", re.I)
+
+
+def _salt_only(phrase: str) -> bool:
+    words = re.findall(r"[\w-]+", phrase.lower())
+    return bool(words) and all(w in _SALT or w in _DETERMINER or w in ("as", "the", "salt", "form") for w in words)
+
+
+# R8 (M02-D3 / B1): inheritance from a previous clause or sentence applies only
+# when the value's own subject is anaphoric ('Its half-life', 'their Tmax',
+# 'Both have', 'It has') or absent ('Half-life: 6 hours'). A plain 'The
+# half-life' is the record field's own statement and inherits nothing.
+# Inherited evidence is weaker than an explicit subject, so only DRUG-SHAPED
+# evidence in the source clause counts: a drug noun with a code ('drug b',
+# 'compound c', 'drugs B and C'), the 'of' complement of a form/situation word
+# ('the formulation of drug b') or an explicit subject frame. Descriptive
+# sentences ('Cmax is 200 ng/mL', 'The tablet contains lactose') carry no owner.
+_ANAPHOR = re.compile(r"\b(?:its|their|it|they|this|these|that|those|such|both|each|either|the\s+latter"
+                      r"|the\s+former|the\s+same)\b", re.I)
+_CLAUSE_SPLIT = re.compile(
+    r"(?<!\d)[.;:](?!\d)|\s[-–—]\s|[()]|,\s+(?:and|but|while|whereas)\s+"
+    r"|\s+(?:and|but|while|whereas|meanwhile)\s+(?=(?:its|their|it|they|both|each|this|these)\b)"
+    r"|,\s+(?=(?:its|their|it|they|both|each|this|these|half[\s-]?li(?:fe|ves)|t\s?max)\b)", re.I)
+_PLURAL_CODES = re.compile(rf"\b{_DRUG_NOUN}s\s+((?:[a-z]|[a-z]?\d{{1,4}}[a-z]?)(?:\s*(?:,|and|or)\s*"
+                           rf"(?:[a-z]|[a-z]?\d{{1,4}}[a-z]?))+)(?![\w-])", re.I)
+
+
+def _value_subject_is_anaphoric(own_clause: str) -> bool:
+    """True when the text of the value's own clause before the measure word is
+    an anaphor or empty ('Its half-life', 'Half-life:')."""
+    kw = re.search(_KW_POSS, own_clause)
+    head = own_clause[:kw.start()] if kw else own_clause
+    head = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", head)
+    if _ANAPHOR.search(head):
+        return True
+    # absent: nothing at all before the measure word ('Half-life: 6 hours');
+    # a definite 'The half-life' is the record field's own statement
+    return not re.findall(r"[\w-]+", head)
+
+
+def _drug_shaped(clause: str) -> List[str]:
+    """Drug-shaped owner evidence of a clause (see the R8 note above)."""
+    clause = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", clause)
+    out = [f"{m.group(1)} {m.group(2)}" for m in _CODE_AFTER_NOUN.finditer(clause)]
+    for m in _PLURAL_CODES.finditer(clause):
+        noun = re.match(r"\w+", m.group(0)).group(0)[:-1]
+        out += [f"{noun} {c}" for c in re.findall(r"[a-z]?\d{1,4}[a-z]?|\b[a-z]\b", m.group(1), re.I)]
+    out += _of_chain(_clean_phrase(clause))
+    return out
+
+
+def _inherited_sources(earlier: str, preceding: str) -> List[str]:
+    """Earlier text, nearest first: the part of this sentence before the
+    value's clause, then the preceding sentences of the field."""
+    prev = [x for x in re.split(r"(?<=[.!?;])\s+", preceding) if x.strip()]
+    return ([earlier] if earlier.strip() else []) + list(reversed(prev))
+
+
 def _context_subjects(text: str) -> List[str]:
     """Subject evidence that must survive punctuation and intervening prose.
 
@@ -708,10 +778,14 @@ def _context_subjects(text: str) -> List[str]:
     for x in re.finditer(r"\(([^()]*)\)", text):
         # References, statistics and known conditions are annotations. An
         # unknown noun in a subject parenthesis is NOT evidence of identity.
+        # R8: a salt form ('(hydrochloride)', '(as sodium)'), a cross-reference
+        # ('(see section 5.2)') or a measure abbreviation ('(Tmax)') is not an owner.
         p = x.group(1)
         population_annotation = bool(_POPULATION_NOUN.search(text[:x.start()]))
-        if not population_annotation and _aside_kind(p) != "annotation":
-            out += _loose_candidates(p)
+        if population_annotation or _aside_kind(p) == "annotation" or _NOT_AN_OWNER_PAREN.search(p) \
+                or _salt_only(p):
+            continue
+        out += _loose_candidates(p)
     for x in re.finditer(r"\b(?:contains?|containing|consists?\s+of)\s+([^,;:.]+)", text, re.I):
         out += _loose_candidates(x.group(1))
     out += _of_chain(text)
@@ -763,9 +837,24 @@ def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, 
     # subject does not: 'Its half-life' inherits the preceding form's owner.
     if "record" in context:
         return False
-    inherited = judge(_subject_candidates(previous_sentence) + _context_subjects(previous_sentence))
-    if inherited and "foreign" in inherited:
-        return True
+    # R8 (B1): only an anaphoric or absent subject inherits, from the nearest
+    # earlier clause ('Drug B is a prodrug; its half-life', 'Drug B was
+    # studied. Its half-life'). An anaphor-led source clause ('It is converted
+    # ...') passes the reference back, up to three clauses.
+    kws = list(re.finditer(_KW_POSS, local_lead))
+    cut = kws[-1].start() if kws else len(local_lead)
+    # boundaries are found on the whole lead so the look-aheads see the measure word
+    bounds = [m.end() for m in _CLAUSE_SPLIT.finditer(local_lead) if m.end() <= cut]
+    own_start = bounds[-1] if bounds else 0
+    if _value_subject_is_anaphoric(local_lead[own_start:]):
+        # the nearest sentence with drug-shaped evidence decides; sentences
+        # without any ('The tablets should be swallowed whole.') are passed
+        for source in _inherited_sources(local_lead[:own_start], previous_sentence)[:3]:
+            inherited = judge(_drug_shaped(source))
+            if "foreign" in inherited:
+                return True
+            if inherited:
+                break
     if re.search(_KW_POSS, before):
         return False  # the value has its own (generic) subject: 'and the half-life is 4 hours'
     earlier = [v for v in (_judge_subject(c, known, known_salted) for c in _subject_candidates(sentence_before))
@@ -1770,7 +1859,7 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # ('The half-life of drug b ...', 'drug b has a half-life ...').
             if subject_names and _explicit_subject_unresolved(
                     subject_names, stext[win.start:m.start()], stext[m.end():win.end], stext[:win.start],
-                    raw[sentences[idx - 1].start:sentences[idx - 1].end] if idx else ""):
+                    raw[max(0, sentences[idx].start - 600):sentences[idx].start] if idx else ""):
                 review("subject_unresolved")
                 continue
             subject_code = "code" in verdicts

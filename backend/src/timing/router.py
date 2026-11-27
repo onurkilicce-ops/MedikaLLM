@@ -86,6 +86,9 @@ def search_timing_drugs(request: Request, q: str = Query(min_length=2, max_lengt
                         _user_id: str = Depends(require_professional)) -> SearchResponse:
     if len(q.strip()) < 2:
         raise HTTPException(status_code=422, detail="At least two non-space characters are required")
+    if any(ord(ch) < 32 or ord(ch) == 127 for ch in q):
+        # NUL/control characters would otherwise fail inside the DB driver as a 500
+        raise HTTPException(status_code=422, detail="Control characters are not allowed in the search text")
     try:
         rows = repository.search_drugs(q.strip())
         return SearchResponse(items=[SearchItem(drug_id=r.drug_id, name=r.name,

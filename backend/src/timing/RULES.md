@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/8`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/10`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -761,6 +761,67 @@ Denetim: önceden sabitlenen 13 olumsuz, 8 olumlu ve 10 ek sınır örneği
 `test_m02_completion_pg.py`. Eski 94 örnek değiştirilmedi. Teknik test başarısı
 gerçek veri doğruluk oranı değildir. Tarihsel 8h sınırlamaları yeni sürümün
 güncel kabul kararı olarak okunmamalıdır.
+
+## 8j. Ayrıştırıcı 10 — bağımsız teslim denetimi düzeltmeleri (B1, N1)
+
+8i'deki önceki cümle mirası iki yönde hatalıydı:
+- **(B1) yanlış ilaç.** Önceki cümlenin düz öznesi okunmuyordu. `Drug B was
+  studied. Its half-life is 6 hours.` Drug A için temiz 6 sa ve ≈5× veriyordu.
+- **(N1) aşırı ret.** Miras her öznesiz değere uygulanıyordu.
+  `Coadministration of drug b did not alter the pharmacokinetics. The half-life is
+  4 hours.` incelemeye düşüyordu.
+
+İlk `/10` taslağı önceki cümlenin öznesini sınırlı bir fiil listesiyle okuyordu.
+Çekişmeli deneme iki yönde 16 hata buldu:
+- Listede olmayan fiil (`Drug B penetrates the CNS. Its half-life …`), virgülle
+  bağlanmış cümle ve `It … Its` zinciri yanlış ilaç olarak temiz geçiyordu.
+- Betimleyici cümleler yabancı ad sayılıyordu: `Cmax is 200 ng/mL. Half-life: …`,
+  `The tablet contains lactose. Its half-life …`.
+
+Bu yüzden fiil listesi kaldırıldı. Son tasarım:
+
+- **Miras yalnız anaforik ya da yok özneye uygulanır.** Ölçüm sözcüğünden önce şu
+  sözcüklerden biri varsa ya da hiç sözcük yoksa (`Half-life: 6 hours`) miras
+  uygulanır: `its`, `their`, `it`, `they`, `this`, `these`, `that`, `those`,
+  `such`, `both`, `each`, `either`, `the latter`, `the former`, `the same`.
+  Belirli tanımlıkla yazılan `The half-life …` kaydın kendi alanındaki ifadedir,
+  miras almaz. **[8i'deki "the half-life da dönmez" ifadesi bu sürümle değişti.]**
+- **Değerin cümleciği.** Ölçüm sözcüğünden önceki son cümlecik sınırından başlar.
+  Sınırlar: `.` `;` `:`, boşluklu tire, parantez, `, and/but/while/whereas`,
+  `and/but/while/whereas/meanwhile its/their/it/they/both/each/this/these` ve
+  virgülle bağlanmış cümle (`, its …`, `, half-life …`, `, Tmax …`).
+- **Miras kaynağı.** Önce aynı cümlenin değerden önceki kısmı, sonra alanın önceki
+  cümleleri okunur (en yakın önce; en çok 3 parça, değerin cümlesinden önceki en
+  çok 600 karakter). **İlaç biçimli kanıt taşıyan ilk parça karar verir.** Kanıtsız
+  parçalar atlanır (`Drug B is a prodrug. The tablets should be swallowed whole. Its
+  half-life …` → Drug B'ye kadar geri gidilir).
+- **İlaç biçimli kanıt** yalnız şunlardır:
+  - ilaç adı + kod (`drug b`, `compound c`, `agent 2`, çoğul `drugs B and C`);
+  - biçim/durum sözcüğünün `of` tümleci (`the formulation of drug b`).
+
+  Kaynak parçada yabancı bir kanıt varsa sonuç `subject_unresolved` olur, ölçüm ve
+  ≈5× üretilmez. Aynı parçada kayıt ilacı da geçse sonuç değişmez (`Unlike Drug A,
+  compound C …`, `Drug A interacts with compound C. Its …`).
+- **Kanıt sayılmayanlar.** Betimleyici cümleler sahip taşımaz: `Cmax is 200 ng/mL`,
+  `The volume of distribution is 50 L`, `Healthy volunteers received 10 mg`, `The
+  tablet contains lactose`, `Glucuronidation is the main pathway`.
+- **Sahip sayılmayan parantezler.** Tuz biçimi (`(hydrochloride)`, `(as sodium)`),
+  çapraz atıf (`(see section 5.2)`, `table`, `figure`) ve ölçü kısaltması (`(Tmax)`,
+  `(AUC)`).
+- **Ad sayılmayan bölüm etiketleri.** Farmakokinetik bölüm etiketleri (`Excretion:`,
+  `Metabolism:`, `Protein binding:`, `Bioavailability:`, `Pharmacokinetic
+  properties:`) ve `mainly`, `extensive`, `absolute`, `systemic`, `proportionally`
+  gibi niteleyiciler ad sayılmaz. İyelik eki `'s` ad sözcüğü sayılmaz (`drug a's mean
+  terminal elimination half-life`).
+
+**Bilinen sınır.** Bu bir ilaç adı tanıma sistemi değildir. Önceki cümlede kodsuz,
+gerçek bir başka ilaç adı geçiyorsa (`Ritonavir increases exposure. Its half-life is
+6 hours.`) miras yoluyla yakalanmaz. Aynı değerin kendi cümlesinde açık özne olarak
+geçen ad (8i ve önceki kurallar) yine yakalanır. Bu kalıntı risk, uzman kabulü ve
+gerçek veri kapsam incelemesinde ayrıca ölçülmelidir.
+
+Denetim: `test_m02_audit_r8.py` (B1 için 23 olumsuz ve 15 olumlu çekişmeli örnek
+dahil) ve `test_m02_audit_r8_http_pg.py`, gerçek PG üzerinden.
 
 ## 10. ≈5 × yarılanma ömrü
 

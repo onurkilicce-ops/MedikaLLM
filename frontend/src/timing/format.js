@@ -1,6 +1,23 @@
+// One tr-TR number format for every number on the screen (values, ± spreads,
+// axis ticks), so ',' is always the decimal and '.' always the group separator.
+export function num(x, digits = 7) {
+  return x == null ? '—' : new Intl.NumberFormat('tr-TR', { maximumSignificantDigits: digits }).format(x);
+}
+
+// Status line of the advice section, derived from the coverage reasons so a
+// missing drug record is not reported as missing product conditions.
+export function adviceStatusText(advice) {
+  if (advice.status === 'evaluated') return 'Seçilen kapsam katalogda değerlendirildi';
+  const reasons = new Set(advice.coverage.map(c => c.status));
+  const why = [reasons.has('drug_not_found') && 'bir ilaç kaydı bulunamadı',
+    reasons.has('conditions_required') && 'ürün/koşul doğrulaması gerekli'].filter(Boolean).join('; ');
+  if (advice.status === 'partially_evaluated') return `Kısmen değerlendirildi${why ? ` (${why})` : ''}`;
+  return `Değerlendirme tamamlanmadı${why ? `: ${why}` : ''}`;
+}
+
 export function quantity(q, unit = 'sa') {
   if (!q) return '—';
-  const n = x => x == null ? '—' : new Intl.NumberFormat('tr-TR', { maximumSignificantDigits: 7 }).format(x);
+  const n = num;
   if (q.kind === 'range') return q.lower_unit ? `${n(q.lower)} ${q.lower_unit}–${n(q.upper)} ${unit}` : `${n(q.lower)}–${n(q.upper)} ${unit}`;
   if (q.kind === 'lower_bound') return `${q.inclusive ? '≥' : '>'}${n(q.lower)} ${unit}`;
   if (q.kind === 'upper_bound') return `${q.inclusive ? '≤' : '<'}${n(q.upper)} ${unit}`;

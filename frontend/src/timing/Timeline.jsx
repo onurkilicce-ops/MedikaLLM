@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { quantity, conditionText } from './format';
+import { quantity, conditionText, num } from './format';
 
 /** Durations on one scale, NOT predicted concentrations or an administration schedule. */
 export default function Timeline({ drugs }) {
@@ -30,7 +30,7 @@ export default function Timeline({ drugs }) {
     {rows.length === 0 ? <p role="status">Çizelgeye yerleştirilebilen değer yok. Kaynak ve inceleme kartlarına bakın.</p> : <>
       <div className="m02-axis"><span>Saat</span><svg viewBox="0 0 100 8" role="img" aria-label={`${scale === 'linear' ? 'Doğrusal' : 'Logaritmik'} saat ekseni`}>
         {ticks.map((t,i) => <g key={i}><line x1={position(t)} x2={position(t)} y1="0" y2="2" stroke="currentColor" />
-          <text x={position(t)} y="6" textAnchor="middle" fontSize="3">{Number(t.toPrecision(3))}</text></g>)}
+          <text x={position(t)} y="6" textAnchor="middle" fontSize="3">{num(t, 3)}</text></g>)}
       </svg></div>
       {rows.map(r => {
         const lo = r.q.value ?? r.q.lower ?? r.q.upper;
@@ -45,7 +45,7 @@ export default function Timeline({ drugs }) {
             <line x1={position(lo)} x2={position(hi)} y1="4" y2="4" stroke={r.type === 'derived' ? '#8b5cf6' : '#087e8b'} strokeWidth="2" />
             <circle cx={position(lo)} cy="4" r="1" fill="#087e8b" />
             {r.q.kind.endsWith('bound') && <text x={position(lo)} y="3" textAnchor="middle" fontSize="4">{r.q.kind === 'lower_bound' ? '→' : '←'}</text>}
-          </svg><strong>{r.approximate ? '≈ ' : ''}{quantity(r.q)}{r.spread != null ? ` ± ${r.spread} sa (istatistik türü belirtilmemiş)` : ''}</strong></div>
+          </svg><strong>{r.approximate ? '≈ ' : ''}{quantity(r.q)}{r.spread != null ? ` ± ${num(r.spread)} sa (istatistik türü belirtilmemiş)` : ''}</strong></div>
         </div>;
       })}
     </>}

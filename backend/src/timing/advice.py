@@ -30,9 +30,12 @@ SOURCES = {
         title="Ciprofloxacin 500 mg film-coated tablets (Ranbaxy/Sun)",
         section="4.5 — Chelation Complex Formation", label_updated="2026-10-15",
         excerpt="Consequently, ciprofloxacin should be administered either 1-2 hours before or at least 4 hours after these preparations."),
-    "cipro_food": EvidenceSource(source_ref="emc:885:4.5", url="https://www.medicines.org.uk/emc/product/885/smpc",
-        title="Ciproxin 250 mg/5 mL oral suspension (Bayer)",
-        section="4.5 — Food and Dairy Products (also 4.2)", label_updated="2026-10-15",
+    # The quoted sentence is in 4.2 (Method of administration); it was checked
+    # verbatim there. 4.5 is not cited because its text was not checked verbatim.
+    "cipro_food": EvidenceSource(source_ref="emc:885:4.2", url="https://www.medicines.org.uk/emc/product/885/smpc",
+        title="Ciproxin 250 mg/5 mL granules and solvent for oral suspension (Bayer)",
+        section="4.2 — Method of administration (dairy / mineral-fortified drinks taken alone outside meals)",
+        label_updated="2026-10-15",
         excerpt="ciprofloxacin oral suspension could be administered either 1-2 hours before or at least 4 hours after dairy products or mineral-fortified drinks"),
     "levothyroxine_food": EvidenceSource(source_ref="dailymed:9e588c43-b9b5-478e-99f7-e197add3cd26:2.1",
         url="https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=9e588c43-b9b5-478e-99f7-e197add3cd26",

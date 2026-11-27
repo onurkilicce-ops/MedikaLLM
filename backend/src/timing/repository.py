@@ -93,7 +93,9 @@ def search_drugs(query: str, limit: int = 20):
 
     SQL wildcards are escaped. One extra row reports truncation honestly.
     """
-    escaped = query.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    # lower(), not casefold(): name_lower / synonym_lower are stored with lower(),
+    # so 'Süß' must stay 'süß' to match 'süßholz' (casefold would give 'süss').
+    escaped = query.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = "%" + escaped + "%"
     def q(session):
         synonyms = exists(select(DrugSynonym.id).where(
