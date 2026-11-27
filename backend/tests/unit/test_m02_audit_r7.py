@@ -47,7 +47,7 @@ def _clean_4h(fp):
 
 
 def test_parser_version_bumped_for_behaviour_change():
-    assert PARSER_VERSION == "m02-text-parser/8"
+    assert PARSER_VERSION == "m02-text-parser/9"
 
 
 # ------------------------------------------------------- the four findings --

@@ -14,11 +14,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
-from sqlalchemy import select, text
+from sqlalchemy import select, text, or_, exists
 from sqlalchemy.exc import SQLAlchemyError
 
 from ..db import sql_client
-from ..db.sql_models import DoctorRecord, Drug, DrugReference, UserRecord
+from ..db.sql_models import DoctorRecord, Drug, DrugReference, DrugSynonym, UserRecord
 
 # Column width of drugs.half_life (String(1000)); the importer cuts longer text.
 HALF_LIFE_STORED_MAX: int = Drug.__table__.c.half_life.type.length
@@ -85,6 +85,22 @@ def read_professional_flag(user_id: str) -> Optional[bool]:
             return None
         return row[1] is not None
 
+    return _run(q)
+
+
+def search_drugs(query: str, limit: int = 20):
+    """Literal, case-insensitive name/id/synonym search; never semantic/LLM.
+
+    SQL wildcards are escaped. One extra row reports truncation honestly.
+    """
+    escaped = query.casefold().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = "%" + escaped + "%"
+    def q(session):
+        synonyms = exists(select(DrugSynonym.id).where(
+            DrugSynonym.drug_pk == Drug.id, DrugSynonym.synonym_lower.like(pattern, escape="\\")))
+        return session.execute(select(Drug.drug_id, Drug.name).where(or_(
+            Drug.name_lower.like(pattern, escape="\\"), Drug.drug_id.ilike(pattern, escape="\\"), synonyms
+        )).order_by(Drug.name_lower, Drug.drug_id).limit(limit + 1)).all()
     return _run(q)
 
 

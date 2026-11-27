@@ -14,6 +14,38 @@ bağımsız olarak yeniden doğrulanmadı.
 
 ## Tur 1 — Güncel ilerleme kaydı (başlangıç 2026-11-24)
 
+### M-02 tamamlama teslimi — 27 Kasım 2026 (Astra; aktarım/doğrulama engelli)
+
+Kullanıcının yeni yetkisiyle Astra bu görevde uygulayıcıdır; Claude bağımsız
+denetimi sonradan yapacaktır. Bu kayıt aşağıdaki tarihsel M02-O1/R7 durumunu
+M-02 tamamlama çalışması için günceller. Dal `feat/onur/m02-timing`, taslak PR #5;
+başlangıç `c0910da6657c50bbed526f7a19c8a65540d9fa50`, hedef
+`team-test/2026-11-23-stage-0-1` / `c86dcc121047fe94a87b38245e8f467045afdb07`.
+
+- D3 için bağlam/özne kararı düzeltildi (parser `/9`): 13 yanlış aidiyet
+  örneği incelemeye bırakılıyor, 8 olumlu örnek korunuyor. Genel NLP iddiası yok.
+- Bağımsız `/timing` ekranı: 2–10 ilaç seçimi, ortak süre çizelgesi, kaynak ve
+  koşul kartları; eksik/incelemeli veri ile teknik hata ayrımı.
+- Salt okunur ilaç araması ve ayrı `POST /api/timing/advice`: açıkça seçilen
+  ürün/öğün koşullarında birincil etiket kaynaklı ilaç–ilaç ve ilaç–gıda aralıkları.
+  Katalog küçük; PK süresinden öneri türetilmez, kanıt yokluğu güvenlik sayılmaz.
+- Yerel kayıt: katı sentetik PostgreSQL ile **1444 backend testi**, **64 frontend
+  testi** ve derleme geçti. Yeni 6 React DOM → gerçek HTTP/PG testi 27 Kasım'da
+  `EACCES 127.0.0.1:18102` bağlantı kısıtında başarısız oldu; başarılı sayılmadı.
+  64 frontend testi ve derleme devam oturumunda tekrar geçti.
+  Son commit CI sonucu ve birleşik akış henüz bekliyor.
+- GitHub'a tree yazma `403 Resource not accessible by integration`; yerel
+  commit `sh.exe / NtCreateDirectoryObject / 0xC0000022` hatasıyla durdu.
+  **Yeni commit/push yok; PR #5 hâlâ `c0910da` üzerindedir.** Yeni uygulama
+  yerel çalışma ağacında/stage'dedir; patch ve dosya hash'leriyle paketlendi.
+- Görsel tarayıcı kontrolü, Claude denetimi, gerçek veri kapsamı ve formdaki
+  **≥%90 uzman kabulü yapılmadı**. Aday değerlendirme kümesi hazır.
+- Ajan/C1, hasta ekranı, şema, migration ve bağımlılıklar değişmedi. Ortak
+  frontend bağlantısı route/import ve hekim menüsüne küçük bir eklemedir.
+
+Kanıt, çalıştırma adımları, sınırlamalar ve bağımsız denetim görevi:
+[M02_Astra_Teslim_Claude_Denetim.md](docs/M02_Astra_Teslim_Claude_Denetim.md).
+
 > Hiçbir MVP'nin (M-01…M-06) klinik kabulü yoktur. Testlerin geçmesi klinik
 > doğrulama değildir. Klinik kabul için uzmanın önceden belirlediği örnekler
 > gerekir (Form A 3.5: adlı hekim/eczacı, Hafta 7).

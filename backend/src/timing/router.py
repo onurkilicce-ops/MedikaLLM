@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from logging import getLogger
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.security import HTTPAuthorizationCredentials
 
 from ..auth.dependencies import security
@@ -18,6 +18,8 @@ from ..auth.service import verify_token
 from ..middleware.rate_limiter import SEARCH_LIMIT, limiter, user_key
 from . import repository, service
 from .models import TimingCompareRequest, TimingCompareResponse
+from . import advice
+from .advice_models import AdviceRequest, AdviceResponse, SearchItem, SearchResponse
 
 logger = getLogger(__name__)
 
@@ -75,4 +77,30 @@ def compare_timing(
         return service.compare(body.drug_ids)
     except repository.TimingDataUnavailable as exc:
         logger.error("[M-02] timing read failed: %s", exc)
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
+
+
+@router.get("/drugs", response_model=SearchResponse, responses=_ERROR_RESPONSES)
+@limiter.limit(SEARCH_LIMIT, key_func=user_key)
+def search_timing_drugs(request: Request, q: str = Query(min_length=2, max_length=100),
+                        _user_id: str = Depends(require_professional)) -> SearchResponse:
+    if len(q.strip()) < 2:
+        raise HTTPException(status_code=422, detail="At least two non-space characters are required")
+    try:
+        rows = repository.search_drugs(q.strip())
+        return SearchResponse(items=[SearchItem(drug_id=r.drug_id, name=r.name,
+                              profiles=advice.profiles_for(r.name)) for r in rows[:20]], limited=len(rows) > 20)
+    except repository.TimingDataUnavailable:
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
+
+
+@router.post("/advice", response_model=AdviceResponse, responses=_ERROR_RESPONSES)
+@limiter.limit(SEARCH_LIMIT, key_func=user_key)
+def timing_advice(request: Request, body: AdviceRequest,
+                  _user_id: str = Depends(require_professional)) -> AdviceResponse:
+    try:
+        return advice.evaluate(body)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except repository.TimingDataUnavailable:
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)

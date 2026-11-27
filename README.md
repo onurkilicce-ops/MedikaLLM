@@ -126,6 +126,91 @@ Frontend (`frontend/` içinde): `npm test` ve `npm run build`.
 
 CI (`.github/workflows/ci.yml`): her PR'da backend için `uv lock --check`, `uv sync --locked`, gerçek paketlerin içe aktarılması, sentetik PostgreSQL servisiyle katı modda tüm testler; frontend için `npm ci`, `npm test`, `npm run build`. Ücretli sağlayıcı, API anahtarı ve gerçek DrugBank verisi gerekmez. Otomatik dağıtım/sağlık izleme workflow'u yoktur.
 
+## M-02 ekranı: seçim, çizelge ve kaynaklı zamanlama
+
+Hekim hesabıyla giriş yaptıktan sonra paneldeki **M-02 · Zamanlama**
+bağlantısını veya `/timing` yolunu açın. 2–10 farklı ilaç seçin. Tmax, yarı ömür
+ve uygun değerlerde yaklaşık 5× süre aynı saat ekseninde, koşulları ayrı satırlarda
+gösterilir. Eksik/inceleme gereken değer çizilmez; metni ve gerekçesi kartta kalır.
+Çizelge kişisel konsantrasyon eğrisi veya güvenli ilaç alma takvimi değildir.
+
+Zaman aralığı önerileri ayrı `/api/timing/advice` çağrısıyla, yalnız seçilen ürün
+profili ve açık kaynak eşleşince gösterilir. Profil seçilmemesi, katalogda kural
+olmaması ve teknik hata ayrıdır. Kaynak kapsamı [SOURCES.md](backend/src/timing/SOURCES.md),
+alan sözleşmeleri [API.md](backend/src/timing/API.md)'dedir. Kadir'in ajanı/C1 ve
+Halil'in hasta ekranı bu akışın ön koşulu değildir.
+
+### Baştan sona sentetik deneme (gerçek DrugBank verisi gerekmez)
+
+Ön koşul: yalnız test için ayrılmış, çalışan yerel PostgreSQL ve yeni boş
+`medicallm_m02_synth` veritabanı; `vector` ve `pg_trgm` uzantıları kullanılabilir
+olmalı. Aşağıdaki `--seed` yalnız bu onaylanmış test veritabanını yeniden kurar.
+Mevcut uygulama/DrugBank veritabanı veya veri klasörü kullanılmaz; betik bir
+PostgreSQL kümesi başlatmaz. `KULLANICI` ve `PORT` kendi ayrı test sunucunuzundur.
+
+Backend terminali, `backend/` içinde:
+
+```powershell
+uv sync --locked
+$env:DO_POSTGRES_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_m02_synth"
+$env:M02_DEMO_CONFIRM = "medicallm_m02_synth"
+$env:MEDICALLM_SYNTHETIC_PG_CONFIRM = "medicallm_m02_synth"
+$env:DB_SSLMODE = "disable"
+$env:JWT_SECRET = "m02-local-synthetic-only-not-production"
+$env:ADMIN_PASSWORD = "m02-local-synthetic-only"
+$env:LLM_BASE_URL = "http://127.0.0.1:9/v1"
+$env:DO_MODEL_ACCESS_KEY = ""
+uv run python scripts/m02_synthetic_demo.py --seed --serve
+```
+
+Bu M-02 test sunucusu `127.0.0.1:18102` üzerinde gerçek kimlik/yetki, router,
+servis ve PostgreSQL kullanır. Yalnız uygulama başlangıcındaki LLM, periyodik işler
+ve migration başlatması devre dışıdır; üretim başlatıcısı değildir. İki mevcut
+sentetik hedef koruması geçmeden veri yazılmaz. `.env` değiştirilmez. Gerçek anahtar
+gerekmez. Betik yeni terminalde de hedef ve iki onay değişkenini ister.
+
+Ayrı frontend terminali, `frontend/` içinde:
+
+```powershell
+npm ci
+$env:VITE_BACKEND_URL = "http://127.0.0.1:18102"
+npm run dev
+```
+
+1. `http://localhost:3000/login` açın. Yalnız demo hesabı:
+   `synthetic.doctor.a@synthetic-medicallm.org`, parola `Synth-Pass-1!`.
+2. `/timing` açın; `[SYNTHETIC] Ciprofloxacin` ve `[SYNTHETIC] Sucralfate`
+   ekleyip karşılaştırın. Sentetik ilk ilaçta Tmax **0,5–1 sa**, yarı ömür
+   **4–6 sa**, ayrı yaklaşık 5× **20–30 sa** beklenir; Tmax eklenmez.
+   Kaynak kartını açın, alıntıyı/konumu görün. Bunlar gerçek ilaç PK değerleri değildir.
+3. Demo için ilk ilaçta UK 500 mg tablet, ikincide oral sucralfate profilini
+   seçin; yeniden karşılaştırın. Kaynağın iki ayrı yönünü görün: ilk ilaç
+   diğerinden **1–2 sa önce** veya **en az 4 sa sonra**. Bu profiller gerçek
+   kullanımda yalnız ürün gerçekten eşleşiyorsa seçilir.
+4. İlk ilaçta Ciproxin UK süspansiyon profilini ve öğün dışında süt ürününü
+   seçin. İlaç–gıda kaynağı görünmeli. Öğünün parçası süt ürününe geçince bu
+   sayısal kural uygulanmamalı. Levothyroxine + Empty agent seçimi, US tablet
+   profili ve kahvaltı ile yalnız **0,5–1 sa önce** yönünü gösterir.
+5. Uncertain agent + Empty agent seçin: yanlış ilaca bağlanmış değer/5× yok;
+   inceleme ve eksik veri mesajları var. İlaç çıkarılınca eski sonuç silinir.
+   Hasta demo hesabı (`synthetic.patient2@synthetic-medicallm.org`, aynı test
+   parolası) 403 alır. Backend kapalıysa hata görünür, boş/güvenli sonuç görünmez.
+
+Otomatik gerçek HTTP akışı (yukarıdaki sentetik sunucu açıkken, `frontend/`):
+
+```powershell
+npx vitest run --config vite.m02.config.js
+```
+
+Bu test React DOM → gerçek HTTP → kimlik/yetki → servis → sentetik PG yoludur;
+mock API veya görsel tarayıcı testi değildir. CI aynı akışı kendi geçici PG
+servisinde çalıştırır. Normal frontend testleri `npm test`, derleme `npm run build`.
+Çıkışta iki terminali Ctrl+C ile kapatın; ayrı test PostgreSQL'inizi kendi yönetim
+yönteminizle durdurun. Gerçek DrugBank kümesini bu deneme için açmayın.
+
+Uzman kabul kümesi ve henüz yapılmamış değerlendirme:
+[docs/M02_Uzman_Kabul.md](docs/M02_Uzman_Kabul.md).
+
 ## M-02 zaman verisi API'si (`POST /api/timing/compare`) — deneme
 
 2–10 DrugBank kimliği için saklanan metindeki Tmax (`absorption`) ve yarılanma ömrü (`half_life`) ifadelerini kaynak alıntısı, koşulları ve satır içi referansıyla; ayrıca ayrı bir "≈5 × yarılanma ömrü" nesnesiyle döndürür. Salt okunur; LLM çağırmaz; hasta/doz almaz. **Klinik öneri değildir**, zaman aralığı önerisi üretmez (`timing_advice.status = "not_evaluated"`), uzman kabulü yapılmamıştır. Tipli sözleşme ve tam örnekler: [backend/src/timing/API.md](backend/src/timing/API.md); ayrıştırma kuralları: [backend/src/timing/RULES.md](backend/src/timing/RULES.md).

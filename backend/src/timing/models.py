@@ -259,8 +259,8 @@ class TimingAdvice(_Out):
     status: Literal["not_evaluated"] = "not_evaluated"
     advice: List[dict] = []
     note: str = (
-        "Timing-interval evidence was not searched in this version. This is "
-        "not a statement that no source exists or that there is no interaction."
+        "This compare request does not evaluate timing-interval evidence; use /api/timing/advice "
+        "with explicit product contexts. This is not a statement that no source exists or that there is no interaction."
     )
 
 

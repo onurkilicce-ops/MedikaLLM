@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/8",
+  "parser_version": "m02-text-parser/9",
   "drugs": [
     {
       "position": 0,
@@ -181,7 +181,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/8"
+          "parser_version": "m02-text-parser/9"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -208,7 +208,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
                          "kinetics": [], "other": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/8"
+          "parser_version": "m02-text-parser/9"
         }
       ],
       "derived": [
@@ -260,7 +260,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
   "timing_advice": {
     "status": "not_evaluated",
     "advice": [],
-    "note": "Timing-interval evidence was not searched in this version. This is not a statement that no source exists or that there is no interaction."
+    "note": "This compare request does not evaluate timing-interval evidence; use /api/timing/advice with explicit product contexts. This is not a statement that no source exists or that there is no interaction."
   },
   "limitations": [
     {"code": "stored_text_not_reverified", "message": "Values are read from text stored in this database (DrugBank import). ..."},
@@ -440,3 +440,92 @@ POST /api/timing/compare  {"drug_ids": ["DB00006", "DB00006"]}
 POST /api/timing/compare           (veritabanı okunamıyor)
 503 {"detail": "Timing data is temporarily unavailable; no result was produced."}
 ```
+
+## M-02 ekranı: arama ve açık kaynaklı öneriler (Astra teslimi)
+
+`compare` sözleşmesi `/2` olarak kalır; ayrıştırıcı `/9` olmuştur. Compare içindeki
+`timing_advice=not_evaluated` sadece bu isteğin öneri değerlendirmediğini anlatır.
+Ekran ayrı `advice` isteğinin sonucunu gösterir; eski tüketiciler etkilenmez.
+M-06/C1 entegrasyonu bu teslimde yapılmaz. Her üç uç aynı Bearer token/doktor
+profili kontrolünü ve salt okunur repository yolunu kullanır.
+
+### `GET /api/timing/drugs?q=...`
+
+`q`: 2–100 karakter, kenar boşlukları temizlenir, en az 2 dolu karakter.
+Kimlik, kayıt adı ve saklı eş ad üzerinde büyük/küçük harfsiz alt dize araması;
+SQL `%`/`_` jokerleri kullanıcı girdisinde harf olarak aranır. En fazla 20 kayıt.
+
+```json
+{"items":[],"limited":false}
+```
+
+`items[]`: `drug_id: string`, `name: string`, `profiles: ProductProfile[]`.
+Profil: `profile_id`, `label`, `route`, `formulation`, `jurisdiction` zorunlu
+metinlerdir. `profiles=[]` öneri için bilinen ürün profili olmadığını söyler;
+PK verisi olmadığı anlamına gelmez. `limited=true` aramayı daraltmayı gerektirir.
+İsimden profil otomatik seçilmez. Boş arama sonucu 200, sorgu hatası 503'tür.
+
+### `POST /api/timing/advice`
+
+```json
+{
+  "drug_ids": ["DB00006", "DB00316"],
+  "contexts": [
+    {"drug_id":"DB00006","profile_id":"cipro_uk_tablet"},
+    {"drug_id":"DB00316","profile_id":"sucralfate_oral"}
+  ],
+  "foods": []
+}
+```
+
+Bu örnek yalnız README'deki sentetik demo eşlemesidir; gerçek ilaç kimliği
+eşlemesi değildir. Kural, sunucunun okuduğu kayıt adı ve seçilen profil eşleşirse
+uygulanır. Gerçek kullanımda aramanın döndürdüğü kimlikler kullanılır.
+
+| Girdi | Kural |
+|---|---|
+| `drug_ids` | Compare ile aynı 2–10 farklı `DB` + 5 rakam kimlik; sıra korunur. |
+| `contexts` | Varsayılan `[]`, en çok 10; her `drug_id` seçilmiş listede ve tekil. `profile_id` 1–80 karakter; kayıt adıyla uygunluğu sunucuda yeniden kontrol edilir. |
+| `foods` | Varsayılan `[]`; farklı değerler: `breakfast`, `dairy_alone`, `calcium_drink_alone`, `dairy_in_meal`. En çok 4. |
+| Ek alan | 422; `null`, eksik liste yerine kullanılmaz. |
+
+Yanıt zorunlu alanları (`advice_models.py`, OpenAPI):
+
+- `schema_version="m02-timing-advice/1"`, `catalog_version="2026-11-26.1"`.
+- `status`: `evaluated` (yalnız katalog tarandı), `partially_evaluated` (bir öneri
+  bulundu fakat eksik koşul/kayıt var), `not_evaluated` (gerekli koşul/kayıt eksik,
+  uygulanabilen öneri yok). Bunlar klinik güvenlik etiketleri değildir.
+- `advice: EvidenceAdvice[]`: boş sonuç `[]`; hiçbir zaman uydurma öneri yok.
+  `rule_id`, `subject_drug_id`, `other_kind: drug|food`, `other_id`, `other_name`,
+  `direction: before|after`, `interval_hours: Quantity`, `conditions: string[]`,
+  `source: EvidenceSource`. Yön HER ZAMAN `subject_drug_id` içindir. İki yön iki
+  ayrı nesnedir; simetrik kabul edilmez. Quantity'nin kullanılmayan sayısal
+  alanları `null`; alt sınır/aralık ve `inclusive` önceki Quantity sözleşmesidir.
+- `source`: `source_ref`, `url`, `title`, `section`, `excerpt`, `label_updated`,
+  `checked_on`, `verification` zorunlu metinler. Sonuncusu
+  `official_label_opened; expert_acceptance_pending`; uzman kabulü değildir.
+- `coverage[]`: `item_ids: string[]`, `status`, `reason: string`.
+  Her seçilen ilaç çifti ve her ilaç–gıda için ayrı satır vardır.
+- `note`: katalog sınırını ve güvenlik sonucu çıkarılmamasını açıklayan metin.
+
+| Coverage durumu | Anlam |
+|---|---|
+| `matched` | Açık kaynak ve ürün/koşul eşleşti; yönlü öneri var. |
+| `conditions_required` | İlgili kural var, gerekli ürün/formülasyon doğrulanmadı. |
+| `not_in_catalog` | Bu sınırlı katalogda eşleşen kural yok; tüm literatür aranmış değildir. |
+| `not_applicable` | Seçilen öğün koşulu kuralın dışında; güvenli kullanım sonucu değil. |
+| `drug_not_found` | Bir kayıt okunamadı/bulunamadı; o çift değerlendirilemedi. |
+
+Başarılı fakat kanıtsız çiftte 200, `advice=[]`, `coverage.status=not_in_catalog`;
+eksik koşulda 200, `advice=[]`, `conditions_required`; veritabanı hatasında 503
+ve sonuç yok. Token yok/geçersiz/silinmiş kullanıcı 401; doktor profili yok 403;
+girdi/uyuşmayan profil 422; hız sınırı 429. SQL/adres/traceback yanıta yazılmaz.
+Kaynak ve ürün eşleştirme sınırları [SOURCES.md](SOURCES.md)'dedir.
+
+### Tüketici için ayrıştırıcı 9 notu
+
+D3: açıklama araya girse, ilaç parantez/yan cümlede veya konu başlığında olsa,
+önceki cümlenin öznesine gönderme yapılsa da yabancı/çözülemeyen özne temiz
+ölçüme dönüşmez. Desteklenen koşullar RULES.md 8i'dedir. Veri şekli/gerekçe
+kodları değişmedi. Review metni ve konumu korunur, 5× üretilmez. Genel doğal
+dil/marka tanıma iddiası yoktur. Mevcut referans kapsamı kuralları korunmuştur.

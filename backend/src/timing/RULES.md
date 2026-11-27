@@ -732,6 +732,36 @@ Hangi yapıda temiz değer verilir, nerede çekimser kalınır:
   kalemi olur; bu yüzden böyle bir alan `no_statement_found` değil
   `unparsed_needs_review` olur (temkinli seçim).
 
+## 8i. Astra tamamlama: ayrıştırıcı 9 — özne bağlamını kaybetmeme
+
+8h'de açık bırakılan D3 yolları bu sürümde yeniden ele alındı. Ölçümün yalnız
+dar sayı penceresinde özne bulunmaması, kayıt ilacına aitliğin kanıtı sayılmaz.
+Pencere kararına ek olarak `parse_field`'ın ilgili ilaca ait `half_life` veya
+`absorption` alanı, cümle başından değere kadar bağlam ve önceki cümle denetlenir.
+
+- Temiz kabulün desteklenen dayanağı: kayda açıkça eşleşen özne veya kaydın
+  PK alanındaki basit/assertif ifade ve bilinen genel/uygulama koşulu öznesi;
+  bunların bağlamında farklı ya da çözülemeyen bir konu bulunmamalıdır.
+- Virgüllü açıklamalar maskelenerek dış özne korunur (`Drug X, ..., has ...`).
+  Parantezdeki uygulama yolu/popülasyon/istatistik açıklaması ile ilaç adı
+  ayrılır. `contains/containing/consists of` tamamlayıcısı konu olarak denetlenir.
+- `Regarding`, `As for`, `Concerning`, `With respect to` konu ifadeleri, kısa
+  başlıklar ve PK terimi önündeki isim grubu aynı özne kararından geçer.
+- Önceki cümlede yabancı özne varken `its/the half-life` gibi genel devam
+  ifadesi kayıt ilacına dönmez. Yeni cümlede kayıt ilacına açık eşleşme bağlamı
+  sıfırlayabilir. Gerçek cümle noktası ile ondalık nokta ayrımı korunur.
+- Çözülemeyen aidiyet: `subject_unresolved` inceleme kalemi, özgün alıntı ve
+  konum; ölçüm ve dolayısıyla 5× yok. Olumlu kontroller topluca reddedilmez.
+- Bu sınırlı dil kuralları genel NLP değildir; uzak cümleler arası konu
+  çözümleme, marka/eş ad/kimyasal eşdeğerlik veya bütün İngilizce yapıları
+  kapsadığı iddia edilmez. Kaynak bağlama D4 ve diğer eski kontroller korunur.
+
+Denetim: önceden sabitlenen 13 olumsuz, 8 olumlu ve 10 ek sınır örneği
+`test_m02_ownership_completion.py`; gerçek PG/HTTP yolu
+`test_m02_completion_pg.py`. Eski 94 örnek değiştirilmedi. Teknik test başarısı
+gerçek veri doğruluk oranı değildir. Tarihsel 8h sınırlamaları yeni sürümün
+güncel kabul kararı olarak okunmamalıdır.
+
 ## 10. ≈5 × yarılanma ömrü
 
 Her `half_life` ölçümü için ayrı bir `derived` nesnesi. `computed` için hepsi:

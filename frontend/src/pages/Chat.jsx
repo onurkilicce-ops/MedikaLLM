@@ -776,6 +776,10 @@ function Chat() {
         </div>
 
         <nav className="doctor-nav">
+          {user.isDoctor && <button className="doctor-nav-item" onClick={() => navigate('/timing')} title="M-02 · Zamanlama" aria-label="M-02 · Zamanlama">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+            {sidebarOpen && <span>M-02 · Zamanlama</span>}
+          </button>}
           {user.isDoctor && (
             <button
               className={`doctor-nav-item ${activeView === 'dashboard' ? 'active' : ''}`}

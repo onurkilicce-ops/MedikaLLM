@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/8"
+PARSER_VERSION = "m02-text-parser/9"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -692,7 +692,47 @@ def _subject_candidates(before: str, after: str = "") -> List[str]:
     return cands + _uncovered_frames(before, after)
 
 
-def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, sentence_before: str = "") -> bool:
+def _context_subjects(text: str) -> List[str]:
+    """Subject evidence that must survive punctuation and intervening prose.
+
+    This is deliberately a bounded grammar, not drug-name recognition. A
+    subject annotation is inspected before it is masked; the outer subject
+    is recovered across comma asides. Topic headings and form-of/contains
+    complements carry ownership, unlike route/statistical annotations.
+    """
+    text = re.sub(r"^\s*(?:\[[^\]]*\]\s*)+", "", text)
+    out: List[str] = []
+    masked, _ = _mask_asides(text)
+    if masked != text:
+        out += _subject_candidates(masked)
+    for x in re.finditer(r"\(([^()]*)\)", text):
+        # References, statistics and known conditions are annotations. An
+        # unknown noun in a subject parenthesis is NOT evidence of identity.
+        p = x.group(1)
+        population_annotation = bool(_POPULATION_NOUN.search(text[:x.start()]))
+        if not population_annotation and _aside_kind(p) != "annotation":
+            out += _loose_candidates(p)
+    for x in re.finditer(r"\b(?:contains?|containing|consists?\s+of)\s+([^,;:.]+)", text, re.I):
+        out += _loose_candidates(x.group(1))
+    out += _of_chain(text)
+    for x in re.finditer(r"(?:^|[.;])\s*(?:regarding|as for|concerning|with respect to)\s+([^,:;]+)[,:]",
+                         text, re.I):
+        out += _loose_candidates(x.group(1))
+    # A short topic heading or attributive noun phrase has no finite verb.
+    for x in re.finditer(rf"(?:^|[.;])\s*([^:;.,]{{1,100}}?)(?::|\s+(?={_KW_POSS}))", text, re.I):
+        p = x.group(1)
+        if re.match(r"(?:in|for)\b", p, re.I) and _POPULATION_NOUN.search(p):
+            continue
+        if not _FINITE_WORD.search(p) and not re.search(
+                r"\b(?:has|have|had|demonstrates?|shows?|exhibits?|reache?s?|reached|attains?|achieves?|that|whether|suggests?)\b", p, re.I):
+            p = re.sub(r"^(?:for|in|regarding|as for|concerning)\s+", "", p, flags=re.I)
+            p = re.sub(r"['’]s\s*$", "", p)
+            out += _loose_candidates(p)
+    return out
+
+
+def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, sentence_before: str = "",
+                                 previous_sentence: str = "") -> bool:
     """True when the value's phrase names a subject that is not the record drug.
     The value's window is judged first; when it names no subject, the nearest
     subject earlier in the sentence governs ('drug b's half-life is 8 hours in
@@ -700,10 +740,32 @@ def _explicit_subject_unresolved(names: Sequence[str], before: str, after: str, 
     plain = [n for n in (_strip_tags(x) for x in names) if n]
     known = [" ".join(_subject_residual(n)) for n in plain]
     known_salted = [" ".join(_subject_residual(n, drop_salts=False)) for n in plain]
+    def judge(candidates):
+        return [v for v in (_judge_subject(c, known, known_salted) for c in candidates) if v != "ignore"]
+
+    # Inspect the complete lead-in, not just the last value window. Otherwise
+    # an aside, an explicit heading or an anaphor can erase the owner.
+    lead = sentence_before + before
+    # split_sentences keeps lower-case continuations together for offsets.
+    # Ownership still resets at a real period when the next assertion names
+    # its own subject; punctuation in decimals/abbreviations is not a reset.
+    depth = _paren_depths(lead)
+    stops = [m.end() for m in _SENTENCE_STOP.finditer(lead) if _real_break(lead, m.start(), depth)]
+    local_lead = lead[stops[-1]:] if stops else lead
+    context = judge(_context_subjects(local_lead))
+    if "foreign" in context:
+        return True
     verdicts = [v for v in (_judge_subject(c, known, known_salted) for c in _subject_candidates(before, after))
                 if v != "ignore"]
     if verdicts:
         return "foreign" in verdicts
+    # An explicit matching subject resets inherited context. A generic
+    # subject does not: 'Its half-life' inherits the preceding form's owner.
+    if "record" in context:
+        return False
+    inherited = judge(_subject_candidates(previous_sentence) + _context_subjects(previous_sentence))
+    if inherited and "foreign" in inherited:
+        return True
     if re.search(_KW_POSS, before):
         return False  # the value has its own (generic) subject: 'and the half-life is 4 hours'
     earlier = [v for v in (_judge_subject(c, known, known_salted) for c in _subject_candidates(sentence_before))
@@ -1707,7 +1769,8 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
             # R2 (M02-D3): the same subject positions in any letter case
             # ('The half-life of drug b ...', 'drug b has a half-life ...').
             if subject_names and _explicit_subject_unresolved(
-                    subject_names, stext[win.start:m.start()], stext[m.end():win.end], stext[:win.start]):
+                    subject_names, stext[win.start:m.start()], stext[m.end():win.end], stext[:win.start],
+                    raw[sentences[idx - 1].start:sentences[idx - 1].end] if idx else ""):
                 review("subject_unresolved")
                 continue
             subject_code = "code" in verdicts
