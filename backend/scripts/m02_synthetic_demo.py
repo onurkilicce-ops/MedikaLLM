@@ -47,9 +47,20 @@ def main():
                 'DB00945': ('[SYNTHETIC] Uncertain agent', '', '[SYNTHETIC] Regarding another drug, the half-life is 10 hours.'),
                 'DB01211': ('[SYNTHETIC] Empty agent', '', ''),
             }, [('DB00006','A900001','[SYNTHETIC] Example source for UI checks; not a clinical reference.')])
+            # M-03: SYNTHETIC protein entries and organ text (fixture data; not real
+            # DrugBank enzyme/transporter records of these names).
+            from tests.integration.test_m03_mechanism_api_pg import set_mechanism
+            S = '[SYNTHETIC] '
+            cyp = ('BE9000001', S + 'Cytochrome P450 1A2', 'Humans')
+            set_mechanism(engine, {
+                'DB00006': {'route': S + 'About 50% is excreted unchanged in urine and 15% in feces.',
+                            'metabolism': S + 'Partly hepatic metabolism.',
+                            'enzymes': [(*cyp, 'yes', 'inhibitor', 'strong')]},
+                'DB00945': {'route': S + 'Mainly eliminated in bile.', 'enzymes': [(*cyp, 'yes', 'substrate')]},
+            }, [('DB00006', 'DB00945', S + 'The metabolism of Uncertain agent can be decreased when combined with Ciprofloxacin.')])
         finally:
             engine.dispose()
-        print('SYNTHETIC M02 records seeded. These PK texts and identity mappings are not clinical data.')
+        print('SYNTHETIC M02/M03 records seeded. These PK texts and identity mappings are not clinical data.')
     if args.serve:
         from contextlib import asynccontextmanager
         import uvicorn

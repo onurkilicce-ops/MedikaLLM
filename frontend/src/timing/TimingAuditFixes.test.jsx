@@ -9,6 +9,8 @@ import Timeline from './Timeline';
 import { adviceStatusText, num } from './format';
 import { timingRequest } from './client';
 vi.mock('./client', () => ({ timingRequest: vi.fn() }));
+// M-03 section is tested in Mechanism.test.jsx; here it answers with an empty result.
+vi.mock('./mechanismClient',()=>({mechanismRequest:vi.fn(async()=>({schema_version:'m03-mechanism/1',drugs:[],pairs:[],notice:''}))}));
 
 const search = [{ drug_id: 'DB00316', name: '[SYNTHETIC] Sucralfate', profiles: [] },
   { drug_id: 'DB00006', name: '[SYNTHETIC] Ciprofloxacin', profiles: [] }];
