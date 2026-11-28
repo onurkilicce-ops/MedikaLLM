@@ -113,17 +113,37 @@ describe('M02 complete screen',()=>{
     mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
     const t=await screen.findByTestId('food-table');
     const heads=[...t.querySelectorAll('thead th')].map(x=>x.textContent);
-    expect(heads[1]).toContain('[SYNTHETIC] Drug A'); expect(heads[2]).toContain('besin kaydı yok');
+    expect(heads[1]).toContain('[SYNTHETIC] Drug A'); expect(heads[2]).toContain('(DrugBank besin kaydı yok)');
     const rows=[...t.querySelectorAll('tbody tr')].map(r=>r.querySelector('th').textContent);
     expect(rows).toEqual(['Antasit, demir, mineraller ve bağlayıcılar','Yemek (aç / tok)']);
     expect(screen.getByText('≥2 sa önce veya ≥2 sa sonra')).toBeTruthy();
     expect(screen.getByText('0,5–1 sa önce')).toBeTruthy();
     expect(t.querySelectorAll('tbody tr')[0].querySelectorAll('td')[1].textContent).toBe('—');
     expect(screen.queryByText(/Take at least 2 hours before or after antacids/)).toBeNull();
-    fireEvent.click(screen.getAllByRole('button',{name:'kaynak'})[0]);
-    expect(screen.getByText(/Take at least 2 hours before or after antacids/)).toBeTruthy();
+    // every source button names its row and drug, and points at the quote it opens
+    const btn=screen.getByRole('button',{name:'Kaynak: Antasit, demir, mineraller ve bağlayıcılar — [SYNTHETIC] Drug A'});
+    expect(screen.getByRole('button',{name:'Kaynak: Yemek (aç / tok) — [SYNTHETIC] Drug A'})).toBeTruthy();
+    fireEvent.click(btn);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(document.getElementById(btn.getAttribute('aria-controls')).textContent)
+      .toMatch(/Take at least 2 hours before or after antacids/);
     expect(screen.queryByText(/ürün\/koşul doğrulaması gerekli/)).toBeNull();
     expect(screen.queryByRole('combobox',{name:/ürün koşulu/})).toBeNull();
+  });
+  it('reports a drug without a record as missing, not as "no food information"',async()=>{
+    const onlyMissing={...tableBody,rows:[],drugs:[{requested_id:'DB00002',drug_id:null,name:null,found:false,has_food_entries:false}]};
+    timingRequest.mockImplementation(async path=>path==='table'?onlyMissing:path==='compare'?{drugs:[drug,other]}:{items:search,limited:false});
+    mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
+    expect((await screen.findByTestId('food-missing')).textContent).toContain('İlaç kaydı bulunamadı: DB00002');
+    expect(screen.queryByText(/kayıtlarında besin veya zamanlama bilgisi yok/)).toBeNull();
+  });
+  it('marks a missing drug column as "kayıt yok" instead of an empty dash',async()=>{
+    const mixed={...tableBody,drugs:[tableBody.drugs[0],{requested_id:'DB00002',drug_id:null,name:null,found:false,has_food_entries:false}]};
+    timingRequest.mockImplementation(async path=>path==='table'?mixed:path==='compare'?{drugs:[drug,other]}:{items:search,limited:false});
+    mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
+    const t=await screen.findByTestId('food-table');
+    expect(t.querySelectorAll('tbody tr')[0].querySelectorAll('td')[1].textContent).toBe('kayıt yok');
+    expect(screen.getByTestId('food-missing').textContent).toContain('DB00002');
   });
 });
 

@@ -97,7 +97,11 @@ def search_timing_drugs(request: Request, q: str = Query(min_length=2, max_lengt
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
 
 
-@router.post("/table", response_model=table.TableResponse, responses=_ERROR_RESPONSES)
+_TABLE_RESPONSES = {**_ERROR_RESPONSES, 422: {
+    "description": "Body is not 1-10 distinct DrugBank ids ('DB' + 5 digits), or has extra fields."}}
+
+
+@router.post("/table", response_model=table.TableResponse, responses=_TABLE_RESPONSES)
 @limiter.limit(SEARCH_LIMIT, key_func=user_key)
 def timing_table(request: Request, body: table.TableRequest,
                  _user_id: str = Depends(require_professional)) -> table.TableResponse:

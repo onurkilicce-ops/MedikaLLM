@@ -67,7 +67,7 @@ class TableDrug(_Out):
     drug_id: Optional[str]
     name: Optional[str]
     found: bool
-    has_food_entries: bool
+    has_food_entries: bool          # DrugBank food-interaction entries only (label cells not counted)
 
 
 class TableRow(_Out):

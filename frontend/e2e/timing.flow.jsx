@@ -52,7 +52,8 @@ describe('M02 live synthetic flow',()=>{
     const dairy=rowCells('dairy_calcium');
     expect(dairy[0]).toContain('1–2 sa önce veya ≥4 sa sonra');expect(dairy[0]).toContain('Ciproxin 250 mg/5 mL');
     const pair=rowCells('selected_drugs');
-    expect(pair[0]).toContain('[SYNTHETIC] Sucralfate (mineral/antasit içerir)');
+    expect(pair[0]).toContain('[SYNTHETIC] Sucralfate: ayrı alın (alüminyum içerir; ağızdan birlikte alındığında)');
+    expect(pair[0]).toContain('Dayanak: «Çok değerlikli iyonlarla');
     expect(pair[0]).toContain('[SYNTHETIC] Sucralfate: ayrı alın');expect(pair[1]).toBe('—');
     const sel=screen.getByTestId('food-table').querySelector('tr[data-row="selected_drugs"]');
     const buttons=[...sel.querySelectorAll('button')];fireEvent.click(buttons[buttons.length-1]);

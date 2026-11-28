@@ -33,7 +33,7 @@ def tt(text, row):
      "≥1 sa önce"),
     ("Avoid multivalent ions. Antacids should be taken at least 4 hours after drug administration.",
      "minerals_antacids", "≥4 sa önce"),
-    ("Take on an empty stomach. Food should be avoided for 2 hours before each dose.", "meal", "2 sa sonra"),
+    ("Take on an empty stomach. Food should be avoided for 2 hours before each dose.", "meal", "≥2 sa sonra"),
     # item is the subject, drug named after the time
     ("Avoid multivalent ions. Cations should be taken at least 6 hours before or 2 hours after the agent.",
      "minerals_antacids", "≥2 sa önce veya ≥6 sa sonra"),
@@ -107,46 +107,166 @@ def test_st_johns_wort_is_not_a_sentence_end():
 
 
 # -------------------------------------------------- selected drugs as ions --
+def _ions(name, cats=()):
+    c = mineral_kind(name, list(cats))
+    return (set(c.ions), c.antacid, c.binder)
+
+
 @pytest.mark.parametrize("name,cats,expected", [
-    ("calcium carbonate", [], "calcium"),
-    ("ferrous sulfate", [], "mineral"),
-    ("sucralfate", [], "mineral"),
-    ("[synthetic] agent", ["Antacids"], "mineral"),
-    ("[synthetic] agent", ["Anticoagulants"], ""),
-    ("warfarin", [], ""),
+    ("calcium carbonate", [], ({"calcium"}, True, False)),
+    ("ferrous sulfate", [], ({"iron"}, False, False)),
+    ("sucralfate", [], ({"aluminum"}, False, False)),
+    ("magnesium oxide", [], ({"magnesium"}, False, False)),
+    ("[synthetic] agent", ["Antacids"], (set(), True, False)),
+    ("sodium bicarbonate", ["Antacids"], (set(), True, False)),
+    ("cholestyramine", [], (set(), False, True)),
+    # monovalent salts carry no multivalent ion; a broad category is not evidence of one
+    ("potassium chloride", ["Mineral Supplements"], (set(), False, False)),
+    ("sodium fluoride", ["Mineral Supplements"], (set(), False, False)),
+    # parenteral / topical products: no oral chelation rule applies
+    ("iron dextran", [], (set(), False, False)),
+    ("ferric carboxymaltose", [], (set(), False, False)),
+    ("edetate calcium disodium", [], (set(), False, False)),
+    ("zinc oxide", [], (set(), False, False)),
+    ("aluminum chloride", [], (set(), False, False)),
+    ("[synthetic] agent", ["Anticoagulants"], (set(), False, False)),
+    ("warfarin", [], (set(), False, False)),
 ])
 def test_mineral_kind(name, cats, expected):
-    assert mineral_kind(name, cats) == expected
+    assert _ions(name, cats) == expected
 
 
 def _cells(*entries):
     return [classify(e) for e in entries]
 
 
-def test_pair_uses_the_general_rule_first_and_names_the_other_drug():
+def _o(drug_id, name, cats=()):
+    return (drug_id, name, mineral_kind(name.lower(), list(cats)))
+
+
+def test_pair_names_the_other_drug_and_the_rule_it_comes_from():
     cells = _cells("Avoid iron supplements. [SYNTHETIC]",
-                   "Take separate from antacids. Take at least 2 hours before or after antacids. [SYNTHETIC]")
-    out = pair_cells("DB00001", cells, [("DB00001", "X", ""), ("DB00002", "Synthetic Al", "mineral")])
+                   "Avoid multivalent ions. [SYNTHETIC] Take at least 2 hours before or after these ions.")
+    out = pair_cells("DB00001", cells, [_o("DB00001", "X"), _o("DB00002", "Synthetic Aluminum hydroxide")])
     assert len(out) == 1
-    assert out[0].with_drug_id == "DB00002" and out[0].row == "selected_drugs"
-    assert out[0].text.startswith("Synthetic Al (mineral/antasit içerir) — Antasitlerden")
-    assert timing_text(out[0].timing) == "≥2 sa önce veya ≥2 sa sonra"
+    c = out[0]
+    assert c.with_drug_id == "DB00002" and c.row == "selected_drugs" and c.kind == "separate"
+    assert c.text.startswith("Synthetic Aluminum hydroxide: ayrı alın (alüminyum içerir; ağızdan birlikte alındığında).")
+    assert "Dayanak: «Çok değerlikli iyonlarla" in c.text
 
 
 def test_pair_never_uses_a_rule_about_another_single_ion():
     cells = _cells("Avoid iron supplements. [SYNTHETIC]")
-    assert pair_cells("DB00001", cells, [("DB00002", "Synthetic Al", "mineral")]) == []
+    assert pair_cells("DB00001", cells, [_o("DB00002", "Synthetic Aluminum hydroxide")]) == []
 
 
-def test_calcium_drug_gets_the_dairy_calcium_rule():
+def test_pair_uses_the_rule_about_the_ion_the_drug_carries():
+    cells = _cells("Take at least 2 hours before or after iron supplements. [SYNTHETIC] Iron lowers absorption.")
+    out = pair_cells("DB00001", cells, [_o("DB00002", "Ferrous sulfate")])
+    assert len(out) == 1 and "demir içerir" in out[0].text
+    assert timing_text(out[0].timing) == "≥2 sa önce veya ≥2 sa sonra"
+
+
+def test_pair_al_mg_antacid_rule_is_not_applied_to_iron_or_calcium():
+    cells = _cells("Take separate from antacids. [SYNTHETIC] Take at least 2 hours before or 6 hours after "
+                   "taking antacids containing aluminum or magnesium.")
+    others = [_o("DB00002", "Ferrous sulfate"), _o("DB00003", "Calcium carbonate"),
+              _o("DB00004", "Magnesium hydroxide")]
+    out = pair_cells("DB00001", cells, others)
+    assert [c.with_drug_id for c in out] == ["DB00004"]
+
+
+def test_pair_general_antacid_rule_applies_to_any_antacid():
+    cells = _cells("Take separate from antacids. Take at least 2 hours before or after antacids. [SYNTHETIC]")
+    out = pair_cells("DB00001", cells, [_o("DB00002", "Sodium bicarbonate", ["Antacids"]),
+                                         _o("DB00003", "Potassium chloride", ["Mineral Supplements"])])
+    assert [c.with_drug_id for c in out] == ["DB00002"] and "antasit içerir" in out[0].text
+
+
+def test_pair_multivalent_rule_is_not_applied_to_monovalent_or_parenteral_salts():
+    cells = _cells("Avoid multivalent ions. [SYNTHETIC] Separate administration by at least 2 hours.")
+    others = [_o("DB00002", "Potassium chloride", ["Mineral Supplements"]), _o("DB00003", "Sodium fluoride"),
+              _o("DB00004", "Iron dextran"), _o("DB00005", "Zinc oxide")]
+    assert pair_cells("DB00001", cells, others) == []
+
+
+def test_calcium_drug_gets_a_rule_that_names_calcium():
     cells = _cells("Avoid milk and dairy products. [SYNTHETIC] Calcium binds the drug.")
-    out = pair_cells("DB00001", cells, [("DB00002", "Synthetic Ca", "calcium")])
-    assert len(out) == 1 and "(kalsiyum içerir)" in out[0].text
+    out = pair_cells("DB00001", cells, [_o("DB00002", "Synthetic calcium carbonate")])
+    assert len(out) == 1 and "kalsiyum içerir" in out[0].text
+
+
+def test_milk_only_rule_is_not_extended_to_a_calcium_drug():
+    cells = _cells("Avoid milk and dairy products. [SYNTHETIC] Take at least 2 hours before or after milk.")
+    assert pair_cells("DB00001", cells, [_o("DB00002", "Calcium carbonate")]) == []
 
 
 def test_info_and_take_with_cells_are_never_paired():
     cells = _cells("Administer calcium supplement. [SYNTHETIC]")
-    assert pair_cells("DB00001", cells, [("DB00002", "Synthetic Ca", "calcium")]) == []
+    assert pair_cells("DB00001", cells, [_o("DB00002", "Calcium carbonate")]) == []
+
+
+# ------------------------------------------- review findings (regressions) --
+M = "minerals_antacids"
+
+
+@pytest.mark.parametrize("text,row,expected", [
+    # 'after taking THE antacid' is counted from the antacid
+    ("Take agent 1 hour before or 4 hours after taking the antacid.", M, "1 sa önce veya 4 sa sonra"),
+    # the item's own use / dose is not the drug
+    ("Take at least 4 hours after antacid use.", M, "≥4 sa sonra"),
+    ("Take 2 hours before calcium supplement doses.", M, "2 sa önce"),
+    ("Take at least 2 hours before or 4 hours after iron supplement dosing.", M, "≥2 sa önce veya ≥4 sa sonra"),
+    # a prohibited window is a minimum separation, never '≤'
+    ("Do not take iron supplements within 2 hours after taking this medication.", M, "≥2 sa önce"),
+    ("Do not take antacids up to 2 hours before this medication.", M, "≥2 sa sonra"),
+    ("Do not take mineral products up to 2 hours before or after this medication.", M, "≥2 sa önce veya ≥2 sa sonra"),
+    # lower bounds of 'more than' / avoid sentences are kept
+    ("Take more than 1 hour before or 2 hours after a meal.", "meal", "≥1 sa önce veya ≥2 sa sonra"),
+    ("Do not have food or water for 10 minutes after administration.", "meal", "≥10 dk önce"),
+    ("Avoid consuming food 2 hours before and 1 hour after each dose.", "meal", "≥1 sa önce veya ≥2 sa sonra"),
+    # a positive 'within' stays an upper bound
+    ("Take within 30 minutes after a meal.", "meal", "≤30 dk sonra"),
+])
+def test_review_direction_and_bounds(text, row, expected):
+    assert tt(text + " [SYNTHETIC]", row) == expected
+
+
+def test_review_one_sided_separate_by_is_not_made_two_sided():
+    assert timing_of("Separate the agent from these products by at least 2 hours before "
+                     "administration. [SYNTHETIC]", "dairy_calcium") is None
+
+
+@pytest.mark.parametrize("entry", [
+    "Take with food. [SYNTHETIC] Separate administration from antacids by at least 2 hours.",
+    "Take on an empty stomach. [SYNTHETIC] Space doses of cholestyramine by at least 4 hours.",
+])
+def test_review_separate_by_about_another_item_is_not_shown_in_this_row(entry):
+    c = classify(entry)
+    assert c.row == "meal" and c.timing is None
+
+
+@pytest.mark.parametrize("entry,kind,word", [
+    ("Avoid multivalent ions.", "avoid", "almayın"),
+    ("Avoid concomitant mineral supplements.", "avoid", "almayın"),
+    ("Avoid goitrogenic foods.", "avoid", "kaçının"),
+    ("Avoid high-fiber foods.", "avoid", "kaçının"),
+    ("Do not take with bile acid sequestrants.", "avoid", "almayın"),
+])
+def test_review_kind_matches_its_turkish_text(entry, kind, word):
+    c = classify(entry + " [SYNTHETIC]")
+    assert c.kind == kind and c.text.endswith(word)
+
+
+def test_review_no_directive_says_avoid_but_writes_take_separately():
+    from src.timing.food import _D
+    assert not [t for _, _, k, t in _D if k == "avoid" and t.endswith("ayrı alın")]
+    assert not [t for _, _, k, t in _D if k == "separate" and t.endswith("almayın")]
+
+
+def test_review_table_422_doc_says_one_to_ten():
+    from src.timing.router import _TABLE_RESPONSES
+    assert "1-10" in _TABLE_RESPONSES[422]["description"]
 
 
 # ---------------------------------------------------------- table.build --
