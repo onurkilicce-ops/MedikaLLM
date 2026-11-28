@@ -499,3 +499,47 @@ def test_astra_same_name_different_ids_are_both_kept():
     ex, und = R.explain_pair("DBA", "DBB", [row(("enzyme", "BE1", "X"), "binder"), row(("enzyme", "BE2", "X"), "binder")],
                              [row(("enzyme", "BE1", "X"), "binder"), row(("enzyme", "BE2", "X"), "binder")])
     assert ex == [] and und == ["X (BE1)", "X (BE2)"]
+
+
+# ------------------------------------------------------ Astra review D2-R / D3-R --
+def test_d2r_parent_drug_forming_metabolites_keeps_its_liver_route():
+    got = notes_of("AlphaMed is extensively metabolized in the liver to inactive metabolites.", "liver")
+    assert "metabolite_mentioned" in got and "metabolite_route" not in got
+
+
+@pytest.mark.parametrize("text,organ", [
+    ("The metabolite is excreted in urine.", "kidney"),
+    ("Its glucuronide is excreted in bile.", "bile_feces"),
+    ("Hepatic metabolism followed by renal excretion of metabolites.", "kidney"),
+    ("Renal clearance is negligible, but 80% of the dose is recovered in urine as metabolites.", "kidney"),
+])
+def test_d2r_a_metabolite_taking_the_route_is_not_the_parent_route(text, organ):
+    assert "metabolite_route" in notes_of(text, organ)
+
+
+@pytest.mark.parametrize("text,organ", [
+    ("Excreted primarily in the urine as unchanged drug and metabolites.", "kidney"),
+    ("Biliary excretion of the parent drug and metabolites.", "bile_feces"),
+    ("Hepatic metabolism followed by renal excretion of metabolites.", "liver"),
+])
+def test_d2r_parent_route_stays_when_the_parent_is_named(text, organ):
+    assert "metabolite_route" not in notes_of(text, organ)
+
+
+def test_d3r_a_hedge_on_another_verb_does_not_reach_a_definite_route():
+    assert notes_of("Absorption may be delayed by food, and 80% of the dose is excreted unchanged in urine.", "kidney") == ()
+
+
+def test_d3r_a_shared_hedge_covers_both_routes():
+    text = "The drug may be metabolized in the liver and excreted in urine."
+    assert "uncertain_statement" in notes_of(text, "liver") and "uncertain_statement" in notes_of(text, "kidney")
+
+
+def test_d3r_a_hedge_in_a_later_sentence_does_not_reach_back():
+    assert notes_of("Excreted in urine; coadministration may alter exposure.", "kidney") == ()
+
+
+def test_d2r_other_drug_and_animal_separation_is_kept():
+    ms, _ = R.organ_mentions("route_of_elimination", S + "Ritonavir is mainly excreted in urine.", ["ritonavir"])
+    assert "other_drug_named" in ms[0].notes
+    assert "animal_study" in notes_of("In rats, 90% of the dose was excreted in feces.", "bile_feces")

@@ -128,6 +128,13 @@ _CONDITION_BEFORE = re.compile(r"\b(?:patients?|subjects?|people|individuals?)\s
 _ANY_CONDITION = re.compile(rf"\b{_CONDITION}\b|\bpatients?\s+with\s+(?!normal\b)", re.I)
 _METABOLITE = re.compile(r"\b(?:metabolites?|glucuronides?|glucuronidated|conjugates?|conjugated|sulfates?"
                          r"|sulphates?)\b", re.I)
+_METABOLITE_NOUN = r"(?:metabolites?|glucuronides?|conjugates?|sulfates?|sulphates?)"
+# 'in urine as metabolites', 'renal excretion of its glucuronide': what takes this route is a metabolite
+_METABOLITE_AFTER = re.compile(rf"^\W*(?:\w+\s+){{0,2}}?(?:as|of)\s+(?:(?:its|the|their|an?|inactive|active|several|major|minor"
+                               rf"|\w+)\s+){{0,2}}{_METABOLITE_NOUN}\b", re.I)
+_PARENT = re.compile(r"\b(?:unchanged|parent|intact|unmetabolized|as such)\b", re.I)
+# a finite verb that starts a new statement after a hedge ('may be delayed by food, and 80% ... IS excreted')
+_FINITE = re.compile(r"\b(?:is|are|was|were|has|have|had|does|do|did|will|can|shall|undergoes|undergo)\b", re.I)
 # The sentence may be about another product ('Unlike drug X, which is renally excreted').
 _OTHER_SUBJECT = re.compile(
     r"\b(?:unlike\b|in contrast to|as with|like other|other (?:drugs?|agents?|compounds?)"
@@ -300,6 +307,19 @@ def _is_route(sentence: str, segs, seg_text, i: int, hit_start: int, has_verb: b
     return False
 
 
+def _metabolite_route(sentence: str, segs, seg_text, i: int, hit_end: int) -> bool:
+    """True when what takes this organ route is a metabolite, not the parent drug."""
+    tail = sentence[hit_end:segs[i][1]]
+    m = _METABOLITE_AFTER.match(tail)
+    if m and not _PARENT.search(tail[:m.end()]):
+        return True
+    # subject of the clause: the text before its first route word
+    clause = re.split(r";|\bbut\b|\bwhereas\b|\bwhile\b", sentence[:hit_end], flags=re.I)[-1]
+    rw = _ROUTE_WORD.search(clause)
+    subject = clause[:rw.start()] if rw else clause
+    return bool(re.search(rf"\b{_METABOLITE_NOUN}\b", subject, re.I)) and not _PARENT.search(subject)
+
+
 def _qualifier_after(sentence: str, segs, i: int, hit_end: int) -> str:
     """A parenthesis right after the organ word qualifies it: 'renal (minor)', 'urinary (<5%)'."""
     if i + 1 < len(segs) and re.fullmatch(r"\s*\(\s*", sentence[hit_end:segs[i + 1][0]] or "x"):
@@ -381,9 +401,13 @@ def organ_mentions(source_field: str, text: str, other_drug_names: Sequence[str]
                 def uncertain(i):
                     if _UNCERTAIN.search(seg_text[i]) or _HEDGE.search(seg_text[i]):
                         return True
-                    # a hedge earlier in the same clause: 'The drug may be extensively metabolized by the liver'
+                    # A hedge earlier in the same clause carries over only while it governs this
+                    # route's verb: 'The drug may be metabolized in the liver and excreted in urine'
+                    # (shared 'may'), but not 'Absorption may be delayed by food, and 80% of the dose
+                    # IS excreted in urine' (a new finite verb starts a definite statement).
                     clause = re.split(r";|\bbut\b|\bwhereas\b|\bwhile\b", sentence[:segs[i][0]], flags=re.I)[-1]
-                    if _HEDGE.search(clause):
+                    hedges = list(_HEDGE.finditer(clause))
+                    if hedges and not _FINITE.search(clause[hedges[-1].end():] + " " + seg_text[i]):
                         return True
                     # 'It is not known whether it is excreted in urine'
                     return i > 0 and bool(re.search(r"\bwhether\s*$", sentence[:segs[i][0]], re.I)) and bool(
@@ -395,7 +419,15 @@ def organ_mentions(source_field: str, text: str, other_drug_names: Sequence[str]
                 if condition or _ANY_CONDITION.search(sentence):
                     notes.append("condition_also_mentioned")  # a route, and a patient condition in the sentence
             if _METABOLITE.search(sentence):
+                # Parent drug forming metabolites ('metabolized in the liver to inactive metabolites')
+                # is information; a metabolite taking the route itself ('The metabolite is excreted in
+                # urine', 'recovered in urine as metabolites') is not the parent drug's route.
                 notes.append("metabolite_mentioned")
+                # judged on the organ's positive statements ('Renal clearance is negligible, but
+                # 80% is recovered in urine as metabolites': the only positive route is a metabolite's)
+                positive = [(i, he) for i, he in route if not negated(i, he)] if route else []
+                if route and all(_metabolite_route(sentence, segs, seg_text, i, he) for i, he in (positive or route)):
+                    notes.append("metabolite_route")
             if other_subject:
                 notes.append("other_subject_possible")
             if named:

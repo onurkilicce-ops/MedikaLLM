@@ -127,6 +127,18 @@ describe('M03 mechanism section', () => {
     expect(flagged).toContain('Safra / dışkı');
     expect(screen.getByText(/Aidiyeti belirsiz ifadeler/)).toBeTruthy();
   });
+  it('D2-R: a metabolite formed by the parent drug stays in the main list; a metabolite route does not', () => {
+    const o = (organ, notes) => ({organ, source_field:'metabolism', quote:T+organ+' sentence.', quote_start:0, quote_end:10,
+      notes, quote_cut_before:false, quote_cut_after:false, other_drugs:[]});
+    const drugs = [drug('DB00001','AlphaMed', {organs:[o('liver', ['metabolite_mentioned']),
+      o('kidney', ['metabolite_mentioned', 'metabolite_route'])], texts:[{source_field:'metabolism', stored_text:T+'x'}]})];
+    render(<Mechanism mechanism={body([], drugs)} />);
+    const route = screen.getByTestId('m03-organs-route').textContent;
+    expect(route).toContain('Karaciğer'); expect(route).toContain('metabolit oluşumu');
+    expect(route).not.toContain('Böbrek');
+    expect(screen.getByTestId('m03-organs-attribution').textContent).toContain('Böbrek');
+    expect(screen.queryByText(/açıkça söyleyen bir ifade yok/)).toBeNull();
+  });
   it('shows a technical error instead of an empty result', () => {
     render(<Mechanism mechanism={null} error="Veritabanına ulaşılamadı." />);
     expect(screen.getByRole('alert').textContent).toContain('Mekanizma kontrolü tamamlanmadı');

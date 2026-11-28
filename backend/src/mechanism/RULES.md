@@ -115,8 +115,14 @@ Notlar:
 - `uncertain_statement`: kayıt bunu bilinmiyor ya da kesin değil olarak anlatıyor.
   - Çekinceli anlatım da sayılır: `may/might/could`, `possibly`, `probably`, `likely`,
     `thought to`, `believed to`, `suggested`, `not confirmed`, `unverified`, `putative` …
-    Çekince organın kendi bölümünde ya da aynı yan cümlenin başında aranır. `unlikely`
-    çekince değil, olumsuzluktur.
+    `unlikely` çekince değil, olumsuzluktur.
+  - Çekince organın kendi bölümünde aranır. Daha önceki bir çekince ancak organın fiilini
+    de yönetiyorsa taşınır:
+    - `The drug may be metabolized in the liver and excreted in urine` → iki yol da
+      belirsiz (ortak `may`);
+    - `Absorption may be delayed by food, and 80% of the dose is excreted unchanged in
+      urine` → böbrek **kesin** kalır, çünkü araya yeni bir çekimli fiil (`is`) girer;
+    - `;` sonrası çekince geriye taşınmaz.
   - Örnekler: `It is not known whether it is excreted in urine`, `Little is known about
     hepatic metabolism`, `No data are available on biliary excretion`, `has not been
     (fully) characterized/evaluated/established`, `is not well understood`.
@@ -135,8 +141,20 @@ Notlar:
     yalnız durum değildir.
 
   `patients with normal renal function` durum sayılmaz.
-- `metabolite_mentioned`: cümlede metabolit, glukuronid, konjugat veya sülfat geçiyor;
-  ifade ana ilaca ait olmayabilir. İlaç adındaki `hydroxy-` sayılmaz.
+- `metabolite_mentioned`: cümlede metabolit, glukuronid, konjugat veya sülfat geçiyor.
+  Yalnız **bilgidir**; organ ana listede kalır. Örnek: `AlphaMed is extensively metabolized
+  in the liver to inactive metabolites` (ana ilaç karaciğerde metabolize olur). İlaç
+  adındaki `hydroxy-` sayılmaz.
+- `metabolite_route`: o organ yoluyla giden şey **metabolittir**, ana ilaç değildir.
+  - Metabolit cümleciğin öznesiyse: `The metabolite is excreted in urine`, `Its glucuronide
+    is excreted in bile`.
+  - Organdan sonra `as/of … metabolites` geliyorsa: `recovered in urine as metabolites`,
+    `renal excretion of metabolites`.
+  - Organın olumlu ifadelerine bakılır: `Renal clearance is negligible, but 80% … in urine
+    as metabolites` → `metabolite_route`.
+  - Ana ilaç da anılıyorsa (`unchanged drug and metabolites`, `the parent drug and
+    metabolites`) bu not verilmez.
+  - Bu not aidiyeti belirsiz listesine gider.
 - `other_drug_named`: cümlede **başka bir ilacın adı** geçiyor; ifade o ilaca ait
   olabilir.
   - Adlar DrugBank'in kendisinden bulunur: metindeki 1–4 sözcüklük diziler `drugs.name`
@@ -256,7 +274,8 @@ Ekranın diğer kuralları:
 - **Organ listesi.** Üç ayrı liste vardır:
   1. **Temizleyen organlar:** işaretsiz ifadeler.
   2. **Aidiyeti belirsiz ifadeler:** `other_drug_named`, `other_subject_possible`,
-     `animal_study`, `metabolite_mentioned`. Açıklamasıyla ve geçen ilacın adıyla gösterilir;
+     `animal_study`, `metabolite_route`. Yalnız `metabolite_mentioned` taşıyan ifade ana
+     listede kalır. Açıklamasıyla ve geçen ilacın adıyla gösterilir;
      seçilen ilacın yolu sayılmaz.
   3. **Olumsuz, belirsiz ya da yalnız hasta durumu:** `negated_or_minor`,
      `uncertain_statement`, `condition_context`.
