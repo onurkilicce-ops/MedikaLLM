@@ -1,0 +1,965 @@
+{
+  "_comment": "SYNTHETIC test cases for M-02 parser m02-text-parser/1. Not DrugBank content, no clinical meaning. Expected results written from RULES.md before implementation.",
+  "author": "author-half-life",
+  "ambiguities": [
+    {"text": "[SYNTHETIC] <exactly 1000 characters whose last sentence ends with '.'> The half-life is 8 hours.", "why": "RULES 1/8: 1000 chars = possible truncation, but 'stored_text_possibly_truncated' on other measurements is only stated for the case where the last sentence lacks terminal punctuation; unclear whether measurements are flagged (and derived blocked) when the 1000-char text ends cleanly."},
+    {"text": "[SYNTHETIC] The half-life is 10 hours in patients aged 65 years.", "why": "'65 years' is a duration excluded by 'aged'; with two durations the sentence is split at the midpoint, so it is unclear whether population 'aged 65 years' lands in the window of the 10-hour value (case kept below without population assertions)."},
+    {"text": "[SYNTHETIC] The half-life varies from 2 hours to 3 days.", "why": "Original 'unit exactly as written' is a single string; RULES does not say which unit (or combined form) is stored for a mixed-unit range (case kept below without unit assertion)."},
+    {"text": "[SYNTHETIC] The half-life is two hours.", "why": "RULES 5.5 defines 'strong keyword' only for Tmax; unclear whether a half-life keyword with only a word-number must yield 'keyword_without_parsable_value' (case kept below without reason-code assertion)."},
+    {"text": "[SYNTHETIC] The half-life is 6 hours every day / prolonged by 2 hours / aged 65 years.", "why": "RULES 5 says excluded durations go to review 'with a reason code' but names no code for every/for/by/age/after exclusions; such cases are kept without reason-code assertions."},
+    {"text": "[SYNTHETIC] The half-life is about 4 hours. Another report gives 4 hours.", "why": "RULES 8 compares 'kind, lower, upper, point' for conflicts; unclear whether differing 'approximate' flags with the same number count as different values."},
+    {"text": "[SYNTHETIC] The half-life is 5 hours [SYNTHETIC].", "why": "RULES 7 shows tokens like [A123]/[L45, T6]; unclear whether a bracketed all-letter word such as [SYNTHETIC] is an inline reference token. Reference cases below therefore put the referenced value in a later sentence."},
+    {"text": "[SYNTHETIC] The half-life is over 24 hours.", "why": "RULES 4 sends 'over' to review (ambiguous_qualifier) but whether that is a review item only or a review-flagged measurement is not stated explicitly; this file follows RULES header 'either structured or kept as text for review' => review item, no measurement (case kept)."}
+  ],
+  "cases": [
+    {
+      "id": "hl_minutes_90",
+      "covers": ["unit minutes -> hours (/60)", "derived point x5"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The plasma half-life of the compound is 90 minutes.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "minutes", "hours": {"kind": "point", "value": 1.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "analyte": "not_stated", "time_reference": "not_applicable_duration", "reference_status": "no_inline_reference"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [90],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 7.5, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_range_2_4_hours",
+      "covers": ["hyphen range", "phase terminal", "derived range bounds x5 separately"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The terminal half-life is 2-4 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 2, "upper": 4}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["terminal"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3, -4],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 10, "upper": 20}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_range_1_2_days_healthy",
+      "covers": ["days x24", "population healthy adults", "derived range"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 1-2 days in healthy adults.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "days", "hours": {"kind": "range", "value": null, "lower": 24, "upper": 48}, "approximate": false, "review_required": false, "conditions_include": {"population": ["healthy adults"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [1, 2, 36],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 120, "upper": 240}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_decimal_point",
+      "covers": ["decimal number", "decimal point is not sentence end"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The mean half-life was 3.75 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 3.75, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3, 75],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 18.75, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_approximately_6",
+      "covers": ["approximate qualifier", "approximate is not a review flag"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is approximately 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": true, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 30, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_upper_bound_lt",
+      "covers": ["'<' upper_bound", "derived one-sided bound x5 keeps direction"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is < 2 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 2}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 10}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_upper_bound_up_to",
+      "covers": ["'up to' upper_bound", "derived upper bound"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is up to 10 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 10}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 50}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_lower_bound_at_least",
+      "covers": ["'at least' lower_bound", "derived lower bound"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is at least 24 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "lower_bound", "value": null, "lower": 24, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "lower_bound", "value": null, "lower": 120, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_lower_bound_more_than",
+      "covers": ["'more than' lower_bound"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is more than 30 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "lower_bound", "value": null, "lower": 30, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "lower_bound", "value": null, "lower": 150, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_mean_plus_minus",
+      "covers": ["'±' is point + dispersion, not range", "derived only centre x5"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life was 5.3 ± 1.2 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 5.3, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [4.1, 6.5, 1.2],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 26.5, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_between_and",
+      "covers": ["'between X and Y' range ('and' inside range is not a window split)"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is between 3 and 5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 3, "upper": 5}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [4],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 15, "upper": 25}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_hours_to_days_range",
+      "covers": ["mixed-unit range '2 hours to 3 days'"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life varies from 2 hours to 3 days.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "hours": {"kind": "range", "value": null, "lower": 2, "upper": 72}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 10, "upper": 360}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_en_dash_h",
+      "covers": ["en-dash range with spaces", "unit 'h' kept as written"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The elimination half-life is 2 – 4 h.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "h", "hours": {"kind": "range", "value": null, "lower": 2, "upper": 4}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["elimination"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [-4],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 10, "upper": 20}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_adjectival_12_hour",
+      "covers": ["adjectival form '12-hour'"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The drug has a 12-hour half-life.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hour", "hours": {"kind": "point", "value": 12, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [-12],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 60, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_seconds",
+      "covers": ["unit seconds /3600"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life in plasma is 45 seconds.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "seconds", "hours": {"kind": "point", "value": 0.0125, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [45, 0.75],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 0.0625, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_weeks_approx",
+      "covers": ["unit weeks x168", "approximate"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The terminal half-life is approximately 3 weeks.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "weeks", "hours": {"kind": "point", "value": 504, "lower": null, "upper": null}, "approximate": true, "review_required": false, "conditions_include": {"phase": ["terminal"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 2520, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_ambiguous_comma_number",
+      "covers": ["comma number -> ambiguous_number_format, never 1.5 or 5"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 1,5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["ambiguous_number_format"],
+        "forbidden_hours": [1.5, 5, 15, 1],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_zero_value",
+      "covers": ["zero -> invalid_value", "unknown never 0"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 0 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["invalid_value"],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_negative_value",
+      "covers": ["negative -> invalid_value"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is -3 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["invalid_value"],
+        "forbidden_hours": [-3, 3],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_inverted_range",
+      "covers": ["inverted range -> inverted_range"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 8-4 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["inverted_range"],
+        "forbidden_hours": [8, 4, -4],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_unit_months",
+      "covers": ["months -> unit_not_exactly_convertible"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The terminal half-life is 2 months.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["unit_not_exactly_convertible"],
+        "forbidden_hours": [2, 1440, 1460, 1488],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_unit_years",
+      "covers": ["years -> unit_not_exactly_convertible"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life in bone is about 3 years.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["unit_not_exactly_convertible"],
+        "forbidden_hours": [3, 26280, 26298],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_over_ambiguous",
+      "covers": ["'over' -> ambiguous_qualifier"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is over 24 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["ambiguous_qualifier"],
+        "forbidden_hours": [24],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_within_ambiguous",
+      "covers": ["'within' is ambiguous for half-life -> ambiguous_qualifier"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is within 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["ambiguous_qualifier"],
+        "forbidden_hours": [6],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_number_list_shared_unit",
+      "covers": ["'4, 6 and 8 hours' -> number_list_shared_unit"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Half-life values of 4, 6 and 8 hours were reported.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["number_list_shared_unit"],
+        "forbidden_hours": [4, 6, 8],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_number_word",
+      "covers": ["number written as word is not structured"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is two hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [2],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_field_only_bare_range",
+      "covers": ["field_only basis: single sentence, no keyword", "derived range 20..30"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] 4-6 hours",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 4, "upper": 6}, "approximate": false, "review_required": false, "time_reference": "not_applicable_duration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [5, -6],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 20, "upper": 30}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_no_keyword_two_sentences",
+      "covers": ["field_only requires a single sentence -> duration_not_identified_as_half_life"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Values vary widely. Mean value is 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["duration_not_identified_as_half_life"],
+        "forbidden_hours": [6],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_empty_string",
+      "covers": ["empty string -> empty (prefix omitted by necessity)"],
+      "field": "half_life",
+      "text": "",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "empty",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_whitespace_only",
+      "covers": ["whitespace only -> empty (prefix omitted by necessity)"],
+      "field": "half_life",
+      "text": "   \t\n  ",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "empty",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_placeholder_not_available",
+      "covers": ["placeholder 'Not Available' (prefix omitted by necessity)"],
+      "field": "half_life",
+      "text": "Not Available",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "placeholder",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_placeholder_na_punct",
+      "covers": ["placeholder after trimming punctuation/case 'N/A.' (prefix omitted by necessity)"],
+      "field": "half_life",
+      "text": " N/A. ",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "placeholder",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_placeholder_word_inside_text",
+      "covers": ["placeholder needs the WHOLE text; other text in half_life field -> unparsed_needs_review"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Not Available",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [0],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_two_populations_one_sentence",
+      "covers": ["window split at 'whereas'", "population not carried to other value", "sentence_keyword for second window"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 4 hours in healthy adults, whereas it is 12 hours in patients with renal impairment.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 4, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"population": ["healthy adults"]}, "conditions_exclude": {"population": ["renal impairment"]}},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 12, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"population": ["renal impairment"]}, "conditions_exclude": {"population": ["healthy adults", "adults"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 20, "lower": null, "upper": null}, "reasons_include": []},
+          {"status": "computed", "hours": {"kind": "point", "value": 60, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_parent_vs_metabolite",
+      "covers": ["analyte parent vs metabolite per window", "derived metabolite_not_parent", "different analyte = no conflict"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life of the parent drug is 3 hours, while the active metabolite has a half-life of 15 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 3, "lower": null, "upper": null}, "approximate": false, "review_required": false, "analyte": "parent"},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 15, "lower": null, "upper": null}, "approximate": false, "review_required": false, "analyte": "metabolite"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 15, "lower": null, "upper": null}, "reasons_include": []},
+          {"status": "not_computed", "hours": null, "reasons_include": ["metabolite_not_parent"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_biphasic_distribution_terminal",
+      "covers": ["phase per window", "derived non_elimination_phase for distribution", "terminal computed in multiphasic field"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The compound shows a biphasic decline, with a distribution half-life of 0.5 hours and a terminal half-life of 20 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 0.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["distribution"]}},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 20, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["terminal"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["non_elimination_phase"]},
+          {"status": "computed", "hours": {"kind": "point", "value": 100, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_phase_ambiguous_multiphasic",
+      "covers": ["field mentions biphasic, value phase unstated -> phase_ambiguous_multiphasic"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Plasma levels decline in a biphasic manner. The half-life is 7 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 7, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["phase_ambiguous_multiphasic"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_nonlinear_kinetics",
+      "covers": ["nonlinear kinetics anywhere in field -> derived nonlinear_or_dose_dependent_kinetics"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Elimination follows nonlinear kinetics. The half-life is 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["nonlinear_or_dose_dependent_kinetics"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_dose_dependent_kinetics",
+      "covers": ["dose-dependent wording -> derived nonlinear_or_dose_dependent_kinetics"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 9 hours. Exposure is dose-dependent.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 9, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["nonlinear_or_dose_dependent_kinetics"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_conflict_same_conditions",
+      "covers": ["two different values, identical (empty) conditions -> conflict, both kept", "derived measurement_requires_review"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 4 hours. In another study, the half-life was 9 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed_needs_review",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 4, "lower": null, "upper": null}, "approximate": false, "review_required": true},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 9, "lower": null, "upper": null}, "approximate": false, "review_required": true}
+        ],
+        "review_reasons_include": ["conflicting_values_same_conditions"],
+        "forbidden_hours": [6.5],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["measurement_requires_review"]},
+          {"status": "not_computed", "hours": null, "reasons_include": ["measurement_requires_review"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_same_value_repeated_no_conflict",
+      "covers": ["identical repeated value is not a conflict"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 5 hours. A second study also reported a half-life of 5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 5, "lower": null, "upper": null}, "approximate": false, "review_required": false},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 5, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 25, "lower": null, "upper": null}, "reasons_include": []},
+          {"status": "computed", "hours": {"kind": "point", "value": 25, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_age_exclusion",
+      "covers": ["'aged 65 years' is age, not a half-life value"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 10 hours in patients aged 65 years.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 10, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [65, 1560],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 50, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_prolonged_by_exclusion",
+      "covers": ["'prolonged by 2 hours' is a change, excluded", "window split at 'and'; elderly not applied to first value"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 6 hours and is prolonged by 2 hours in elderly patients.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_exclude": {"population": ["elderly"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [2, 8],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 30, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_dosing_every_exclusion",
+      "covers": ["'every 12 hours' dosing interval excluded"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 8 hours, supporting dosing every 12 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 8, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [12],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 40, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_after_exclusion",
+      "covers": ["half-life context exclusion 'after' right after the duration"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life was measured 2 hours after a single dose.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [2],
+        "derived": []
+      }
+    },
+    {
+      "id": "hl_competitor_steady_state",
+      "covers": ["competitor keyword in second window -> duration_not_identified_as_half_life"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 6 hours, and steady state is reached in 2 days.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": ["duration_not_identified_as_half_life"],
+        "forbidden_hours": [48, 2],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 30, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_t_half_keyword",
+      "covers": ["'t1/2' keyword; digits inside t1/2 are not numbers"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The mean t1/2 was 11 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 11, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [1, 2, 0.5],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 55, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_route_condition",
+      "covers": ["route condition", "time_reference always not_applicable_duration for half-life"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Following intravenous administration, the half-life is 2.5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 2.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["intravenous"]}, "time_reference": "not_applicable_duration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 12.5, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_intracellular_matrix",
+      "covers": ["intracellular matrix -> derived non_plasma_matrix"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The intracellular half-life of the active form is 18 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 18, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["non_plasma_matrix"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_truncated_1000_chars",
+      "covers": ["exactly 1000 chars = possible truncation", "last sentence without terminal punctuation not parsed", "other measurements flagged", "derived measurement_requires_review"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is 8 hours in healthy adults. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. This sentence is neutral filler text for a parser fixture. Filler zzzzzzzzzzz. The half-life in elderly subjects was 1",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed_needs_review",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 8, "lower": null, "upper": null}, "approximate": false, "review_required": true, "conditions_include": {"population": ["healthy adults"]}}
+        ],
+        "review_reasons_include": ["stored_text_possibly_truncated", "sentence_possibly_truncated"],
+        "forbidden_hours": [1],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["measurement_requires_review"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_reference_matched_after_period",
+      "covers": ["inline token after '.' belongs to previous sentence", "reference matched"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Data come from one small study. The half-life is 6 hours.[A1] No other data are given.",
+      "drug_reference_ids": ["A1", "A2"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 30, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_reference_partially_matched",
+      "covers": ["multi-token reference, only one belongs to this drug"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Data come from two studies. The half-life is 7 hours.[A1, B7]",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 7, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "partially_matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 35, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_reference_unmatched",
+      "covers": ["token not among this drug's references -> unmatched; general refs never attached"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Data come from one study. The half-life is 9.5 hours [C9].",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 9.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "unmatched", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 47.5, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    }
+  ]
+}
