@@ -149,15 +149,29 @@ def verify_token(token: str) -> str:
     logger.debug(f"[AUTH] Verifying token")
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-        user_id = payload["userId"]
-        logger.debug(f"[AUTH] Token verified for user: {user_id}")
-        return user_id
     except jwt.ExpiredSignatureError:
         logger.warning(f"[AUTH] Token expired")
         raise ValueError("Token expired")
     except jwt.InvalidTokenError as e:
         logger.warning(f"[AUTH] Invalid token: {str(e)}")
         raise ValueError("Invalid token")
+    except OverflowError:
+        # PyJWT converts exp/nbf/iat to datetimes; a non-finite or huge
+        # numeric claim (e.g. exp=Infinity) overflows instead of raising an
+        # InvalidTokenError. That is malformed token content, not an
+        # application error.
+        logger.warning("[AUTH] Invalid token: out-of-range time claim")
+        raise ValueError("Invalid token")
+    # A correctly signed token whose identity claim is missing, null, empty
+    # or not a string carries no usable identity: same answer as any other
+    # invalid token (callers map ValueError to 401). The id format itself is
+    # not restricted — existing ids are opaque strings.
+    user_id = payload.get("userId") if isinstance(payload, dict) else None
+    if not isinstance(user_id, str) or not user_id.strip():
+        logger.warning("[AUTH] Invalid token: missing or malformed userId claim")
+        raise ValueError("Invalid token")
+    logger.debug(f"[AUTH] Token verified for user: {user_id}")
+    return user_id
 
 
 def _create_token(user_id: str) -> str:
@@ -186,6 +200,60 @@ def reset_password(email: str, new_password: str) -> None:
         raise
     finally:
         session.close()
+
+class PasswordChangeError(Exception):
+    """Base class for expected change-password failures (mapped to 4xx)."""
+
+
+class PasswordChangeUserNotFound(PasswordChangeError):
+    """The token's user id has no row (deleted account / foreign token)."""
+
+
+class CurrentPasswordIncorrect(PasswordChangeError):
+    """The supplied current password does not verify against the stored hash."""
+
+
+def change_password(user_id: str, current_password: str, new_password: str) -> None:
+    """Change the password of exactly one user, identified by the external
+    ``user_id`` carried in the JWT.
+
+    ``new_password`` must already have passed ``ChangePasswordRequest``
+    validation (the same complexity rules as registration).
+
+    Raises ``PasswordChangeUserNotFound`` / ``CurrentPasswordIncorrect`` for
+    expected failures; any other exception (DB unavailable, commit failure)
+    propagates after a rollback so the caller can report an explicit error.
+    The stored hash is only replaced after the current password verified and
+    is committed in a single transaction, so a failed attempt never changes
+    the record.
+    """
+    session = get_session()
+    try:
+        user = session.query(UserRecord).filter(UserRecord.user_id == user_id).first()
+        if user is None:
+            raise PasswordChangeUserNotFound()
+        try:
+            matches = bcrypt.checkpw(
+                current_password.encode("utf-8"), str(user.password).encode("utf-8")
+            )
+        except ValueError:
+            # Stored value is not a bcrypt hash (e.g. a disabled-account
+            # marker): the current password cannot be verified.
+            matches = False
+        if not matches:
+            raise CurrentPasswordIncorrect()
+        user.password = bcrypt.hashpw(  # type: ignore[assignment]
+            new_password.encode("utf-8"), bcrypt.gensalt()
+        ).decode("utf-8")
+        user.updated_at = datetime.now(timezone.utc).isoformat()  # type: ignore[assignment]
+        session.commit()
+        logger.info(f"[AUTH] Password changed for user {user_id}")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 async def send_verification_email(email: str, code: str):
     """Deliver a verification code via SMTP, falling back to a log warning

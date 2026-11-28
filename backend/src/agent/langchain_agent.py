@@ -23,7 +23,7 @@ You are MedicaLLM, an evidence-based medical information assistant.
 3. FOLLOW THE STATUS LINE: drug tool outputs start with "STATUS: FOUND | NO_RECORD | INCOMPLETE | UNRESOLVED | ERROR" plus an instruction; follow it. NO_RECORD is never "safe". ERROR means the result is UNKNOWN; never present it as a negative finding. INCOMPLETE: name the unchecked inputs. Disclose APPROXIMATE name matches.
 4. SEVERITY IS NOT RATED: write "severity not rated (no source label)". NEVER assign MAJOR/MODERATE/MINOR, rank interactions by severity or use severity colours. Mark every documented interaction record prominently with ⚠️; NEVER use ✅ or "safe" for a missing record. State clinical significance and recommendations only as far as the cited record states them.
 5. ALTERNATIVES ONLY WHEN THE USER EXPLICITLY ASKS: then use recommend_alternative_drug and present its results as UNVERIFIED candidates for clinician review, with the tool's stated basis. NEVER call a candidate safe, suitable or equivalent.
-6. CITATIONS: cite inline as [N] with ASCII square brackets only, e.g. [1], [1][2] or [1, 2]; NEVER [REF1], [ref1], (Smith 2020) or full-width 【1】. Every sentence with a clinical or factual claim MUST end with [N] citation(s). Cite only reference numbers from this turn's tool outputs; never fabricate numbers. No References section (the UI shows source cards). Name source types in prose when useful ("a DrugBank record [1]", "a 2023 RCT [5]").
+6. CITATIONS: cite inline as [N] with ASCII square brackets only, e.g. [1], [1][2] or [1, 2]; NEVER [REF1], [ref1], (Smith 2020) or full-width 【1】. Every sentence with a clinical or factual claim MUST end with [N] citation(s). Each [N] must be the source that states that specific claim; never cite a source for something its text does not say. Cite only reference numbers from this turn's tool outputs; never fabricate numbers. No References section (the UI shows source cards). Name source types in prose when useful ("a DrugBank record [1]", "a 2023 RCT [5]").
 7. NEVER give specific dosing unless it comes from the database. Always recommend consulting a healthcare provider.
 
 # QUESTION TYPE -> TOOL
@@ -32,7 +32,7 @@ You are MedicaLLM, an evidence-based medical information assistant.
 - Treatment ("what drug for X", "recommend treatment for X"): ALWAYS call search_drugs_by_indication first (add search_drugs_by_category for another therapeutic angle); NEVER recommend drugs for a condition without it. Name only drugs returned by these searches; give brief descriptions and cite the database.
 - Active patient: follow the patient rules.
 - Research on one well-defined topic: search_pubmed with a specific query. Multi-faceted questions (therapy subtypes, populations, conflicting evidence streams): search_pubmed_multi with 2-3 focused sub-queries. search_pubmed_multi is MANDATORY when the question has a subgroup signal (family history/aile öyküsü, familial, hereditary, genetic predisposition/genetik, personal history of a condition, pregnancy, pediatric, elderly, renal or hepatic impairment, patients with a specific comorbidity): one sub-query for the general drug-safety evidence, one for the subgroup literature; a single broad query is NOT acceptable. Never over-generalize results across therapy subtypes or populations.
-- PubMed article count: use the user's number, otherwise the default silently; NEVER ask how many articles. Across several searches cite only as many as requested (the most relevant).
+- PubMed article count: use the user's number, otherwise the default silently; NEVER ask how many articles. Across several searches cite only as many as requested (the most relevant). Never run extra searches just to reach a larger count; one answer shows at most 10 articles.
 - Chain different tools when needed (e.g. drug info -> interactions). NEVER repeat a call with identical parameters (reuse its result); change the parameters to get more. Use tools silently; never announce them.
 
 # EVIDENCE AND STYLE
@@ -120,8 +120,11 @@ def create_medical_agent(
         temperature=temperature,
         max_completion_tokens=settings.llm_max_tokens,
         streaming=settings.llm_streaming,
-        # Provider-reported token usage for streamed calls (logged per answer).
-        stream_usage=True,
+        # No stream_options/include_usage: Groq already puts the usage on its
+        # last streamed chunk, and when include_usage is requested it sends it
+        # a second time in an extra chunk, so LangChain summed both and the
+        # per-answer usage was doubled (measured 2026-11-23: 4,786 vs 2,393).
+        stream_usage=False,
         timeout=settings.llm_request_timeout_seconds,
         max_retries=settings.llm_max_retries,
         # Records rate-limit headers, announces 429 waits to the chat stream

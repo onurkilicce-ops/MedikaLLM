@@ -46,6 +46,7 @@ class PubMedArticle(BaseModel):
     affiliation_count: int = Field(default=0, description="Number of institutional affiliations")
     citation_source: str = Field(default="", description="Source of citation data (scopus, semantic_scholar, none)")
     query_type: str = Field(default="", description="Detected query type for adaptive scoring")
+    source_query: str = Field(default="", description="Sub-query that retrieved the article (multi-query search)")
 
     # Full text (optional, populated when available from Europe PMC)
     full_text_available: bool = Field(default=False, description="True if full-text sections fetched from Europe PMC")

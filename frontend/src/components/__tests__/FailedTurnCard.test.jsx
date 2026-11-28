@@ -53,12 +53,13 @@ describe('FailedTurnCard provider limits', () => {
       <FailedTurnCard
         message={{ failure: { code: 'llm_daily_quota', retryable: false, retryAfterSeconds: 433 }, retryQuery: 'q' }}
         strings={s}
-        onRetry={null}
+        onRetry={vi.fn()}
       />,
     );
     const card = screen.getByRole('alert');
     expect(card).toHaveTextContent(s.codes.llm_daily_quota);
     expect(card).toHaveTextContent(s.retryAfter('8 dk'));
+    // A retry handler is passed, yet a non-retryable failure gets no button.
     expect(screen.queryByRole('button', { name: s.retry })).toBeNull();
   });
 
@@ -67,6 +68,10 @@ describe('FailedTurnCard provider limits', () => {
     expect(formatWait(433, s.units)).toBe('8 dk');
     expect(formatWait(7380, s.units)).toBe('2 sa 3 dk');
     expect(formatWait(7200, s.units)).toBe('2 sa');
+    // Just under a full hour rounds up to the hour, never "1 sa 60 dk".
+    expect(formatWait(7170, s.units)).toBe('2 sa');
+    expect(formatWait(86399, s.units)).toBe('24 sa');
+    expect(formatWait(3599, s.units)).toBe('1 sa');
     expect(formatWait(null, s.units)).toBeNull();
   });
 

@@ -15,12 +15,15 @@ inside those limits without a network or a real LLM:
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime
 from types import SimpleNamespace
 
 import httpx
-import openai
 import pytest
+
+# CI installs only the web-framework test dependencies; skip, don't error.
+openai = pytest.importorskip("openai", reason="drives the real OpenAI client and its retry loop")
 
 pytest.importorskip("langchain", reason="request guard uses langchain middleware")
 
@@ -66,6 +69,7 @@ def _clean_limits(monkeypatch):
     # Deterministic estimates: the character-based fallback, whatever state a
     # background tokenizer warm-up in another test left behind.
     monkeypatch.setattr(token_budget, "_encoder_state", "unavailable")
+    monkeypatch.setattr(token_budget, "RETRY_LOAD_AFTER_SECONDS", float("inf"))
     yield
     provider_limits.reset()
 
@@ -330,6 +334,43 @@ async def test_guard_passes_a_fitting_call_through_unchanged():
     assert seen[0].messages == msgs
 
 
+def test_guard_shortens_this_turns_largest_tool_result_with_a_marker():
+    guard = RequestGuardMiddleware(1000)
+    tools.set_current_patient_id(None)
+    msgs = [SystemMessage("rules"), HumanMessage("question"),
+            AIMessage("", tool_calls=[{"name": "search_pubmed", "args": {"query": "q"}, "id": "t1"}]),
+            ToolMessage("STATUS: FOUND\n" + "line of results\n" * 400, tool_call_id="t1")]
+    req = guard._prepare(_guard_request(msgs, ("get_drug_info",)))
+    shortened = req.messages[-1].content
+    assert shortened.startswith("STATUS: FOUND")
+    assert "tool output shortened here" in shortened
+    assert token_budget.estimate_messages_tokens(req.messages) + token_budget.estimate_tools_tokens(req.tools) <= 1000
+    assert msgs[-1].content.count("line of results") == 400  # the agent state itself is untouched
+
+
+def test_guard_tells_the_model_when_history_was_left_out():
+    guard = RequestGuardMiddleware(800)
+    tools.set_current_patient_id(None)
+    msgs = [SystemMessage("rules"), HumanMessage("old " * 900), AIMessage("answer " * 300), HumanMessage("now?")]
+    req = guard._prepare(_guard_request(msgs, ("get_drug_info",)))
+    assert "earlier conversation message(s) were left out" in req.messages[0].content
+    assert req.messages[-1].content == "now?"
+    assert msgs[0].content == "rules"  # only the outgoing request carries the note
+
+
+def test_fallback_estimate_is_calibrated_and_reload_retries_are_rate_limited(monkeypatch):
+    assert token_budget.estimate_text_tokens("x" * 360) == 100
+    calls = []
+    monkeypatch.setattr(token_budget, "_load_encoder", lambda: calls.append(1))
+    monkeypatch.setattr(token_budget, "RETRY_LOAD_AFTER_SECONDS", 600.0)
+    monkeypatch.setattr(token_budget, "_encoder_failed_at", time.monotonic())
+    token_budget.warm_up(blocking=True)
+    assert calls == []  # too soon after a failed load
+    monkeypatch.setattr(token_budget, "_encoder_failed_at", time.monotonic() - 601)
+    token_budget.warm_up(blocking=True)
+    assert calls == [1]
+
+
 # ── session usage summary and the SSE wait notice ───────────────────────────
 
 class _Chunk:
@@ -380,6 +421,8 @@ def client(monkeypatch):
     monkeypatch.setattr(router_mod, "consume_message", lambda _uid: SimpleNamespace(
         is_premium=True, used_today=0, remaining=99))
     monkeypatch.setattr(router_mod, "set_current_user_id", lambda _uid: None)
+    # The endpoint is rate limited per client; tests share one in-memory bucket.
+    monkeypatch.setattr(router_mod.limiter, "enabled", False)
     app.dependency_overrides[get_current_user] = lambda: SimpleNamespace(
         user_id="user-1", email="x@example.invalid", is_doctor=True, is_patient=False)
 
@@ -404,6 +447,7 @@ def test_endpoint_relays_the_rate_limit_wait_notice(client):
 
     with client(waits_then_answers).stream("POST", "/api/session/query-stream",
                                            json={"query": "q", "conversation_id": "c"}) as res:
+        assert res.status_code == 200
         raw = "".join(res.iter_text())
     events = [json.loads(line[6:]) for line in raw.split("\n") if line.startswith("data: ")]
     status = [e for e in events if e["type"] == "status"]

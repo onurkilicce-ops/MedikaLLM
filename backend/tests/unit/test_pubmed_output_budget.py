@@ -59,7 +59,8 @@ def test_ten_articles_fit_well_inside_one_request():
 
 def test_left_out_content_is_announced_and_kept_in_sources():
     out = tools._build_pubmed_response(["q"], [_article(1)], avg_confidence=80.0, max_articles=5)
-    assert "abstract shortened; full abstract in source [" in out
+    assert "[abstract shortened: middle part not shown" in out
+    assert "do not state findings that are not in the text above; full abstract in source [" in out
     assert "Open-access full text (Europe PMC) is attached to source [" in out
     sources = tools.peek_search_sources("req-pubmed")
     assert sources[-1]["abstract"] == LONG_ABSTRACT
@@ -78,7 +79,8 @@ def test_more_articles_than_the_cap_are_reported_not_silently_dropped():
     out = tools._build_pubmed_response(["q"], [_article(i) for i in range(15)], avg_confidence=80.0,
                                        max_articles=10, requested=20)
     assert out.count("[Article ") == 10
-    assert "20 articles were requested; at most 10" in out
+    assert "20 articles were requested; one answer can show at most 10" in out
+    assert "Do not run more searches to reach the requested number" in out
 
 
 def test_search_pubmed_caps_and_defaults(monkeypatch):
@@ -95,3 +97,57 @@ def test_search_pubmed_caps_and_defaults(monkeypatch):
     many_out = tools.search_pubmed.invoke({"query": "metformin lactic acidosis", "num_articles": 20})
     assert many_out.count("[Article ") == tools._PUBMED_MAX_ARTICLES
     assert "20 articles were requested" in many_out
+
+
+STRUCTURED = "\n".join([
+    "BACKGROUND: " + "Context words. " * 25,
+    "METHODS: " + "Design words. " * 25,
+    "RESULTS: Metformin was not associated with lactic acidosis (RR 1.1, 95% CI 0.9-1.3). " + "More results. " * 10,
+    "CONCLUSIONS: No increased risk was found in eGFR >= 30.",
+])
+
+
+def test_structured_abstracts_keep_conclusions_and_results():
+    article = _article(1)
+    article.abstract = STRUCTURED
+    article.full_text_available = False
+    out = tools._build_pubmed_response(["q"], [article], avg_confidence=80.0, max_articles=5)
+    assert "CONCLUSIONS: No increased risk was found in eGFR >= 30." in out
+    assert "RESULTS: Metformin was not associated with lactic acidosis" in out
+    assert "[abstract shortened: BACKGROUND, METHODS not shown" in out or         "[abstract shortened: BACKGROUND not shown" in out or "METHODS not shown" in out
+
+
+def test_many_articles_get_shorter_abstracts():
+    five = tools._build_pubmed_response(["q"], [_article(i) for i in range(5)], 80.0, max_articles=5)
+    ten = tools._build_pubmed_response(["q"], [_article(i) for i in range(10)], 80.0, max_articles=10)
+    per_five = len(five.split("[Article ", 1)[1]) / 5
+    per_ten = len(ten.split("[Article ", 1)[1]) / 10
+    assert per_ten < per_five
+
+
+def test_quality_line_labels_sub_scores_and_shows_raw_values():
+    out = tools._build_pubmed_response(["q"], [_article(1)], 80.0, max_articles=5)
+    assert "sub-scores /100: citations 60, FWCI 70" in out
+    assert "cited 12x, FWCI 1.40" in out
+
+
+def test_multi_query_keeps_every_sub_query_represented():
+    general = [_article(i) for i in range(8)]
+    for a in general:
+        a.source_query, a.confidence_score = "glp-1 pancreatitis", 95
+    subgroup = [_article(100 + i) for i in range(3)]
+    for a in subgroup:
+        a.source_query, a.confidence_score = "hereditary pancreatitis family history", 60
+    pool = sorted(general + subgroup, key=lambda a: a.confidence_score, reverse=True)
+    out = tools._build_pubmed_response(
+        ["glp-1 pancreatitis", "hereditary pancreatitis family history"], pool, 80.0, max_articles=5)
+    assert out.count("Sub-query: hereditary pancreatitis family history") >= 2
+    assert out.count("[Article ") == 5
+
+
+def test_empty_sub_query_is_reported():
+    only = [_article(i) for i in range(3)]
+    for a in only:
+        a.source_query = "general"
+    out = tools._build_pubmed_response(["general", "subgroup"], only, 80.0, max_articles=5)
+    assert 'NOTE: no article from sub-query "subgroup" passed the relevance filter' in out

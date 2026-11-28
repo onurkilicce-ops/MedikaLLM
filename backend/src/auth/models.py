@@ -3,6 +3,10 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Literal
 import re
 
+# bcrypt only accepts secrets of at most 72 bytes (UTF-8); bcrypt>=5 raises
+# ValueError above that instead of truncating.
+BCRYPT_MAX_PASSWORD_BYTES = 72
+
 class UserBase(BaseModel):
     # used interally and in llm context
     user_id: str
@@ -101,6 +105,15 @@ class ChangePasswordRequest(BaseModel):
     @field_validator("new_password")
     @classmethod
     def validate_password(cls, v):
+        # bcrypt (5.x) refuses secrets longer than 72 BYTES; the limit is on
+        # the UTF-8 encoding, not on the character count ("ü" is 2 bytes).
+        # Reject here (422) instead of failing at hash time (500); never
+        # truncate silently.
+        if len(v.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+            raise ValueError(
+                f"Password must be at most {BCRYPT_MAX_PASSWORD_BYTES} bytes when UTF-8 encoded "
+                "(non-ASCII characters count as 2-4 bytes)"
+            )
         if not re.search(r"[A-Z]", v):
             raise ValueError("Password must contain at least 1 uppercase letter")
         if not re.search(r"[a-z]", v):

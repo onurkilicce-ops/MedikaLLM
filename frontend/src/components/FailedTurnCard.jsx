@@ -19,9 +19,12 @@ export function formatWait(seconds, units) {
   const s = Math.ceil(Number(seconds));
   if (!Number.isFinite(s) || s <= 0 || !units) return null;
   if (s < 60) return `${s} ${units.seconds}`;
-  if (s < 3600) return `${Math.ceil(s / 60)} ${units.minutes}`;
-  const hours = Math.floor(s / 3600);
-  const minutes = Math.ceil((s % 3600) / 60);
+  // Round once (to whole minutes), then split: rounding hours and minutes
+  // separately produced "1 h 60 min" for waits just under a full hour.
+  const totalMinutes = Math.ceil(s / 60);
+  if (totalMinutes < 60) return `${totalMinutes} ${units.minutes}`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
   return minutes ? `${hours} ${units.hours} ${minutes} ${units.minutes}` : `${hours} ${units.hours}`;
 }
 
@@ -52,7 +55,9 @@ export default function FailedTurnCard({ message, strings, onRetry, retryDisable
           />
         </details>
       ) : null}
-      {message.retryQuery && onRetry ? (
+      {/* A non-retryable failure (e.g. daily quota, request too large) can
+          only fail again right away: no retry button, whatever the caller passes. */}
+      {message.retryQuery && onRetry && failure.retryable !== false ? (
         <button type="button" className="failed-turn-retry" onClick={onRetry} disabled={retryDisabled}>
           {strings.retry}
         </button>

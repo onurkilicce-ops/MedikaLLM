@@ -77,9 +77,9 @@ _MESSAGES: dict[str, tuple[str, bool]] = {
         False,
     ),
     "llm_request_too_large": (
-        "This question needs more context than the language model provider "
-        "accepts in one request. Ask about fewer drugs at once or start a new "
-        "conversation.",
+        "This question and the data it needs are larger than the language model "
+        "provider accepts in one request. Ask for fewer articles or drugs at once, "
+        "or shorten the question.",
         False,
     ),
     "llm_bad_request": ("The language model rejected the request.", True),

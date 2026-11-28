@@ -13,57 +13,77 @@ from .models import PatientBase, Patient, Doctor, DoctorBase
 logger = logging.getLogger(__name__)
 
 
+# Outcomes of resolve_patient_access. Only the last two grant access.
+PATIENT_NOT_FOUND = "not_found"
+PATIENT_ACCESS_DENIED = "denied"
+PATIENT_ACCESS_SELF = "self"
+PATIENT_ACCESS_ASSIGNED_DOCTOR = "assigned_doctor"
+PATIENT_ACCESS_GRANTED = frozenset({PATIENT_ACCESS_SELF, PATIENT_ACCESS_ASSIGNED_DOCTOR})
+
+
+def resolve_patient_access(
+    session, patient_id: str, current_user_id: str
+) -> tuple[Optional[PatientRecord], str]:
+    """Single implementation of the existing patient-record access policy.
+
+    Identifiers: ``patient_id`` and ``current_user_id`` are the EXTERNAL
+    string ids (``PatientRecord.patient_id`` / ``UserRecord.user_id``, the
+    value in the JWT). They are only ever compared with columns of the same
+    kind; ownership and assignment are then checked on the internal integer
+    keys (``PatientRecord.user_pk == UserRecord.id``,
+    ``DoctorPatientAssociation.doctor_pk/patient_pk``).
+
+    Policy (unchanged, as previously inlined in get_patient_details):
+      * a user with a doctor profile may access only patients assigned to
+        that doctor profile;
+      * otherwise a user with a patient profile may access only their own
+        patient record;
+      * anyone else is denied.
+
+    Returns ``(patient_record_or_None, outcome)`` where outcome is one of the
+    PATIENT_* constants. Database errors propagate to the caller.
+    """
+    patient_rec = session.query(PatientRecord).filter(
+        PatientRecord.patient_id == patient_id
+    ).first()
+    if patient_rec is None:
+        return None, PATIENT_NOT_FOUND
+
+    user_rec = session.query(UserRecord).filter(
+        UserRecord.user_id == current_user_id
+    ).first()
+    if user_rec is None:
+        logger.error(f"User not found for ID {current_user_id}")
+        return patient_rec, PATIENT_ACCESS_DENIED
+
+    if user_rec.doctor_profile is not None:
+        association = session.query(DoctorPatientAssociation).filter(
+            DoctorPatientAssociation.doctor_pk == user_rec.doctor_profile.id,
+            DoctorPatientAssociation.patient_pk == patient_rec.id,
+        ).first()
+        if association is None:
+            logger.error(f"Doctor {current_user_id} not authorized to access patient {patient_id}")
+            return patient_rec, PATIENT_ACCESS_DENIED
+        return patient_rec, PATIENT_ACCESS_ASSIGNED_DOCTOR
+
+    if user_rec.patient_profile is not None:
+        if patient_rec.user_pk != user_rec.id:  # type: ignore[comparison-overlap]
+            logger.error(f"Patient {current_user_id} not authorized to access patient {patient_id}")
+            return patient_rec, PATIENT_ACCESS_DENIED
+        return patient_rec, PATIENT_ACCESS_SELF
+
+    logger.error(f"Unauthorized access attempt by user {current_user_id}")
+    return patient_rec, PATIENT_ACCESS_DENIED
+
+
 def get_patient_details(patient_id: str, current_user_id: str) -> Optional[PatientBase]:
     """Get patient details if current user is authorized."""
     session = get_session()
     try:
-        current_user = get_user_by_id(current_user_id)
-        if not current_user:
-            logger.error(f"User not found for ID {current_user_id}")
+        patient_rec, outcome = resolve_patient_access(session, patient_id, current_user_id)
+        if patient_rec is None or outcome not in PATIENT_ACCESS_GRANTED:
             return None
-        
-        # Get patient record
-        patient_rec = session.query(PatientRecord).filter(
-            PatientRecord.patient_id == patient_id
-        ).first()
-        
-        if not patient_rec:
-            return None
-        
-        # Authorization check
-        if current_user.is_doctor:
-            # Doctors can only access patients assigned to them
-            user_rec = session.query(UserRecord).filter(
-                UserRecord.user_id == current_user_id
-            ).first()
-            
-            if not user_rec or not user_rec.doctor_profile:
-                logger.error(f"Doctor profile not found for user {current_user_id}")
-                return None
-            
-            association = session.query(DoctorPatientAssociation).filter(
-                DoctorPatientAssociation.doctor_pk == user_rec.doctor_profile.id,
-                DoctorPatientAssociation.patient_pk == patient_rec.id
-            ).first()
-            
-            if not association:
-                logger.error(f"Doctor {current_user_id} not authorized to access patient {patient_id}")
-                return None
-        
-        elif current_user.is_patient:
-            # Patients can only access their own record
-            user_rec = session.query(UserRecord).filter(
-                UserRecord.user_id == current_user_id
-            ).first()
-            
-            if user_rec is None or patient_rec.user_pk != user_rec.id:  # type: ignore
-                logger.error(f"Patient {current_user_id} not authorized to access patient {patient_id}")
-                return None
-        else:
-            # Regular users cannot access patient records
-            logger.error(f"Unauthorized access attempt by user {current_user_id}")
-            return None
-        
+
         # Get user name for PatientDetails
         user_rec = patient_rec.user
         

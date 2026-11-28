@@ -1,9 +1,12 @@
 from __future__ import annotations
 import asyncio
 from typing import List
-from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+import json
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
@@ -214,6 +217,26 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 
+class _AsciiJSONResponse(JSONResponse):
+    """JSON with non-ASCII escaped (``\\uXXXX``). Parses to the same data as
+    the default response, but can also carry a lone UTF-16 surrogate that a
+    client sent as a JSON escape (e.g. ``"\\ud800"``), which plain UTF-8
+    encoding cannot represent."""
+
+    def render(self, content) -> bytes:
+        return json.dumps(
+            content, ensure_ascii=True, allow_nan=False, indent=None, separators=(",", ":")
+        ).encode("utf-8")
+
+
+@app.exception_handler(RequestValidationError)
+async def _request_validation_handler(request: Request, exc: RequestValidationError):
+    """Same status and body as FastAPI's default 422 handler. The default one
+    echoes the rejected input and crashed with a 500 (UnicodeEncodeError) when
+    that input contained a lone surrogate, e.g. in a password field."""
+    return _AsciiJSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
+
+
 app.add_middleware(SlowAPIMiddleware)
 
 # Add request logging middleware
@@ -254,6 +277,8 @@ from .users.router import router as users_router # noqa: E402
 from .admin.router import router as admin_router # noqa: E402
 from .pubmed.router import router as pubmed_router # noqa: E402
 from .pubmed.bookmarks_router import router as bookmarks_router # noqa: E402
+from .timing.router import router as timing_router  # noqa: E402  (M-02)
+from .mechanism.router import router as mechanism_router  # noqa: E402  (M-03)
 
 # Register all routers
 app.include_router(auth_router)
@@ -264,6 +289,8 @@ app.include_router(users_router)
 app.include_router(admin_router)
 app.include_router(pubmed_router)
 app.include_router(bookmarks_router)
+app.include_router(timing_router)
+app.include_router(mechanism_router)
 
 @app.get("/")
 async def endpoint_root():
@@ -315,7 +342,7 @@ async def endpoint_health():
     not prove the provider currently answers — see `verifies`.
     """
     from fastapi.responses import JSONResponse
-    from .agent import llm_status, provider_limits
+    from .agent import llm_status, provider_limits, token_budget
 
     checks: dict[str, str] = {}
     overall_ok = True
@@ -368,6 +395,7 @@ async def endpoint_health():
             "api_key_configured": bool(settings.llm_api_key),
             **llm_status.snapshot(),
             "provider_limits": provider_limits.snapshot() or "none_observed_since_start",
+            "token_estimator": token_budget.estimator_name(),
         },
         "verifies": {
             "agent": "agent object constructed at startup (no LLM call)",

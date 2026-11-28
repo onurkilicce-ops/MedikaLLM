@@ -115,6 +115,32 @@ def retry_after_seconds(headers: httpx.Headers | dict, body_text: str | None) ->
     return parse_duration(match.group(1)) if match else None
 
 
+def _client_wait_seconds(headers) -> float | None:
+    """The wait the OpenAI client derives from headers (retry-after-ms first)."""
+    for name, scale in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
+        raw = headers.get(name)
+        if raw:
+            try:
+                return float(raw) * scale
+            except ValueError:
+                continue
+    return None
+
+
+def _retries_taken(response: httpx.Response) -> int:
+    """Attempt number of this response (the SDK sends x-stainless-retry-count)."""
+    try:
+        return int(response.request.headers.get("x-stainless-retry-count", "0"))
+    except (RuntimeError, ValueError):  # no request attached / odd value
+        return 0
+
+
+def _client_max_retries() -> int:
+    from ..config import settings
+
+    return int(settings.llm_max_retries)
+
+
 # --- observed limits (for /health) ------------------------------------------
 
 def record_headers(headers: httpx.Headers | dict) -> None:
@@ -196,15 +222,27 @@ async def on_response(response: httpx.Response) -> None:
             logger.warning("[PROVIDER LIMITS] Daily %s limit reached; not retrying", kind.upper())
             return
 
-        if seconds is None or seconds > CLIENT_MAX_HONOURED_WAIT_S:
-            return  # the client will not wait this long; no promise to the user
+        # Announce only a wait the OpenAI client will really perform. It reads
+        # retry-after-ms, then retry-after (honoured when 0 < x <= 60 s), and
+        # ignores the body; when only the body names the wait, hand it to the
+        # client as a header so it waits as announced instead of retrying at once.
+        wait = _client_wait_seconds(response.headers)
+        if wait is None and seconds is not None and 0 < seconds <= CLIENT_MAX_HONOURED_WAIT_S:
+            response.headers["retry-after-ms"] = str(math.ceil(seconds * 1000))
+            wait = seconds
+        if wait is None or not 0 < wait <= CLIENT_MAX_HONOURED_WAIT_S:
+            return  # the client will not wait for this; no promise to the user
+        if _retries_taken(response) >= _client_max_retries():
+            logger.info("[PROVIDER LIMITS] %s limit reached on the last attempt; no retry follows",
+                        (kind or "unknown").upper())
+            return
         notifier = _wait_notifier.get()
         logger.info(
             "[PROVIDER LIMITS] %s limit reached; client retries in ~%ss",
-            (kind or "unknown").upper(), math.ceil(seconds),
+            (kind or "unknown").upper(), math.ceil(wait),
         )
         if notifier is not None:
-            notifier(wait_notice(seconds, kind))
+            notifier(wait_notice(wait, kind))
     except Exception:  # pragma: no cover - observation must never break a call
         logger.debug("[PROVIDER LIMITS] response hook failed", exc_info=True)
 

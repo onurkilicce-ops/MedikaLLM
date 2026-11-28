@@ -3,7 +3,7 @@ import json
 import re
 from typing import List, Optional, Union
 from sqlalchemy import or_, func
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
 
 # NOTE: calculate_severity (text-pattern scoring) is intentionally no longer
 # used here. Its scores are not clinical labels (e.g. "This combination is not
@@ -101,7 +101,18 @@ def _orm_to_drug_base(drug_orm: DrugORM) -> DrugBase:
     )
 
 
-def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
+def _orm_to_drug_full(drug_orm: DrugORM, related: dict | None = None) -> Drug:
+    """Convert an ORM drug to the full model.
+
+    ``related`` holds pre-loaded (limited) rows for large relationships, keyed
+    by relationship name; they are used instead of the ORM collections, which
+    must not be reassigned (see get_drug).
+    """
+    related = related or {}
+
+    def rel(name: str):
+        return related[name] if name in related else getattr(drug_orm, name)
+
     # Basic fields
     drug = Drug(
         drug_id=drug_orm.drug_id, # type: ignore
@@ -143,12 +154,12 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "over_the_counter": p.over_the_counter,
             "approved": p.approved,
         }
-        for p in drug_orm.products
+        for p in rel("products")
     ]
     
     drug.international_brands = [ # type: ignore
         {"brand_name": b.brand_name, "company": b.company}
-        for b in drug_orm.international_brands
+        for b in rel("international_brands")
     ]
     
     drug.dosages = [ # type: ignore
@@ -162,7 +173,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "ingredients": m.ingredients,
             "supplemental_ingredients": m.supplemental_ingredients,
         }
-        for m in drug_orm.mixtures
+        for m in rel("mixtures")
     ]
     
     drug.targets = [ # type: ignore
@@ -173,7 +184,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "known_action": t.known_action,
             "actions": t.actions,
         }
-        for t in drug_orm.targets
+        for t in rel("targets")
     ]
     
     drug.enzymes = [ # type: ignore
@@ -186,7 +197,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "inhibition_strength": e.inhibition_strength,
             "induction_strength": e.induction_strength,
         }
-        for e in drug_orm.enzymes
+        for e in rel("enzymes")
     ]
     
     drug.carriers = [ # type: ignore
@@ -197,7 +208,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "known_action": c.known_action,
             "actions": c.actions,
         }
-        for c in drug_orm.carriers
+        for c in rel("carriers")
     ]
     
     drug.transporters = [ # type: ignore
@@ -208,7 +219,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "known_action": t.known_action,
             "actions": t.actions,
         }
-        for t in drug_orm.transporters
+        for t in rel("transporters")
     ]
     
     drug.interactions = [ # type: ignore
@@ -217,7 +228,7 @@ def _orm_to_drug_full(drug_orm: DrugORM) -> Drug:
             "drug2_name": i.drug2_name,
             "description": i.description,
         }
-        for i in drug_orm.interactions_as_drug1
+        for i in rel("interactions_as_drug1")
     ]
     
     return drug
@@ -298,16 +309,20 @@ def get_drug(drug_id: str, detail: str = "moderate") -> Optional[Union[Drug, Dru
             )
         
         else:  # detail == "high"
-            # High detail: Full Drug model with all relationships
+            # High detail: Full Drug model with all relationships.
+            # selectinload (one extra query per collection) instead of
+            # joinedload: joining six collections in one SELECT returns the
+            # product of their sizes (synonyms x groups x categories x ...),
+            # which made a single high-detail lookup take minutes.
             drug_orm = (
                 session.query(DrugORM)
                 .options(
-                    joinedload(DrugORM.synonyms),
-                    joinedload(DrugORM.groups),
-                    joinedload(DrugORM.categories),
-                    joinedload(DrugORM.atc_codes),
-                    joinedload(DrugORM.food_interactions),
-                    joinedload(DrugORM.dosages),
+                    selectinload(DrugORM.synonyms),
+                    selectinload(DrugORM.groups),
+                    selectinload(DrugORM.categories),
+                    selectinload(DrugORM.atc_codes),
+                    selectinload(DrugORM.food_interactions),
+                    selectinload(DrugORM.dosages),
                 )
                 .filter(DrugORM.drug_id == drug_id)
                 .first()
@@ -319,20 +334,30 @@ def get_drug(drug_id: str, detail: str = "moderate") -> Optional[Union[Drug, Dru
             
             logger.info(f"[DRUG SERVICE] Retrieved drug (high detail): {drug_orm.name} ({drug_id})")
             
-            # Load large relationships separately with limits to avoid memory issues
+            # Load large relationships separately with limits to avoid memory
+            # issues. Keep them in a dict: assigning a limited subset to an ORM
+            # relationship (delete-orphan cascade) replaced the collection, and
+            # the next query's autoflush then issued DELETE for every related
+            # row beyond the limit (rolled back only because this session is
+            # never committed; refused outright in a read-only transaction).
             drug_pk = drug_orm.id
-            drug_orm.products = session.query(DrugProduct).filter(DrugProduct.drug_pk == drug_pk).limit(100).all()
-            drug_orm.international_brands = session.query(DrugInternationalBrand).filter(DrugInternationalBrand.drug_pk == drug_pk).limit(100).all()
-            drug_orm.mixtures = session.query(DrugMixture).filter(DrugMixture.drug_pk == drug_pk).limit(50).all()
-            drug_orm.targets = session.query(DrugTarget).filter(DrugTarget.drug_pk == drug_pk).limit(50).all()
-            drug_orm.enzymes = session.query(DrugEnzyme).filter(DrugEnzyme.drug_pk == drug_pk).limit(50).all()
-            drug_orm.carriers = session.query(DrugCarrier).filter(DrugCarrier.drug_pk == drug_pk).limit(50).all()
-            drug_orm.transporters = session.query(DrugTransporter).filter(DrugTransporter.drug_pk == drug_pk).limit(50).all()
-            drug_orm.interactions_as_drug1 = session.query(DrugInteraction).filter(DrugInteraction.drug1_id == drug_pk).limit(500).all()
-            
-            logger.debug(f"[DRUG SERVICE] High detail - loaded {len(drug_orm.targets)} targets, {len(drug_orm.enzymes)} enzymes, {len(drug_orm.interactions_as_drug1)} interactions (limited)")
-            
-            return _orm_to_drug_full(drug_orm)
+            related = {
+                "products": session.query(DrugProduct).filter(DrugProduct.drug_pk == drug_pk).limit(100).all(),
+                "international_brands": session.query(DrugInternationalBrand).filter(DrugInternationalBrand.drug_pk == drug_pk).limit(100).all(),
+                "mixtures": session.query(DrugMixture).filter(DrugMixture.drug_pk == drug_pk).limit(50).all(),
+                "targets": session.query(DrugTarget).filter(DrugTarget.drug_pk == drug_pk).limit(50).all(),
+                "enzymes": session.query(DrugEnzyme).filter(DrugEnzyme.drug_pk == drug_pk).limit(50).all(),
+                "carriers": session.query(DrugCarrier).filter(DrugCarrier.drug_pk == drug_pk).limit(50).all(),
+                "transporters": session.query(DrugTransporter).filter(DrugTransporter.drug_pk == drug_pk).limit(50).all(),
+                "interactions_as_drug1": session.query(DrugInteraction).filter(DrugInteraction.drug1_id == drug_pk).limit(500).all(),
+            }
+
+            logger.debug(
+                f"[DRUG SERVICE] High detail - loaded {len(related['targets'])} targets, "
+                f"{len(related['enzymes'])} enzymes, {len(related['interactions_as_drug1'])} interactions (limited)"
+            )
+
+            return _orm_to_drug_full(drug_orm, related)
     
     except Exception as e:
         logger.error(f"[DRUG SERVICE] Error getting drug {drug_id}: {e}", exc_info=True)

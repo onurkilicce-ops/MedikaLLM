@@ -18,21 +18,29 @@ from __future__ import annotations
 import json
 import math
 import threading
+import time
 from logging import getLogger
 from typing import Any, Iterable
 
 logger = getLogger(__name__)
 
-# Conservative fallback: Turkish and clinical text tokenize denser than plain
-# English, so assume fewer characters per token than the ~4 of English prose.
-FALLBACK_CHARS_PER_TOKEN = 3.0
+# Fallback when tiktoken is not loaded: o200k_base averages ~4.2 characters
+# per token on English prompt text and ~3.7 on Turkish; 3.6 stays on the safe
+# side for both without refusing ordinary requests (chars/3 overestimated the
+# fixed prompt + tool schemas by ~40%).
+FALLBACK_CHARS_PER_TOKEN = 3.6
 # Role/formatting tokens the chat template adds around each message.
 MESSAGE_OVERHEAD_TOKENS = 4
-SHORTENED_MARKER = "\n[… earlier answer shortened to fit the provider limit]"
+SHORTENED_MARKER = "\n[… earlier message shortened to fit the provider limit]"
+# After a failed tokenizer load (e.g. the one-time encoding download had no
+# network), try again in the background at most this often.
+RETRY_LOAD_AFTER_SECONDS = 600.0
 
 _encoder: Any = None
 _encoder_state = "not_loaded"  # not_loaded | loading | ready | unavailable
+_encoder_failed_at = 0.0
 _encoder_lock = threading.Lock()
+_encoder_attempt_done = threading.Event()  # set when a load attempt finishes
 _tool_cache: dict[tuple, int] = {}
 
 
@@ -47,7 +55,7 @@ class RequestBudgetExceeded(Exception):
 
 
 def _load_encoder() -> None:
-    global _encoder, _encoder_state
+    global _encoder, _encoder_state, _encoder_failed_at
     try:
         import tiktoken
 
@@ -56,20 +64,35 @@ def _load_encoder() -> None:
             _encoder, _encoder_state = enc, "ready"
     except Exception as exc:  # offline first run, missing package, ...
         with _encoder_lock:
-            _encoder_state = "unavailable"
+            _encoder_state, _encoder_failed_at = "unavailable", time.monotonic()
         logger.warning(
             "[TOKEN BUDGET] tiktoken encoding unavailable (%s); using a "
-            "conservative character-based estimate", type(exc).__name__,
+            "conservative character-based estimate, retrying later", type(exc).__name__,
         )
+    finally:
+        _encoder_attempt_done.set()
 
 
 def warm_up(blocking: bool = False) -> None:
-    """Load the tokenizer once (in the background unless ``blocking``)."""
+    """Load the tokenizer (in the background unless ``blocking``).
+
+    A no-op once loaded or while loading; after a failure it tries again only
+    when RETRY_LOAD_AFTER_SECONDS have passed.
+    """
     global _encoder_state
     with _encoder_lock:
-        if _encoder_state != "not_loaded":
+        state = _encoder_state
+        if state == "ready":
             return
-        _encoder_state = "loading"
+        if state == "unavailable" and time.monotonic() - _encoder_failed_at < RETRY_LOAD_AFTER_SECONDS:
+            return
+        if state != "loading":
+            _encoder_state = "loading"
+            _encoder_attempt_done.clear()
+    if state == "loading":
+        if blocking:  # a background load is in progress: wait for its outcome
+            _encoder_attempt_done.wait(timeout=30)
+        return
     if blocking:
         _load_encoder()
     else:
@@ -77,18 +100,34 @@ def warm_up(blocking: bool = False) -> None:
 
 
 def estimator_name() -> str:
-    return "tiktoken:o200k_base" if _encoder_state == "ready" else "chars/3"
+    return "tiktoken:o200k_base" if _encoder_state == "ready" else f"chars/{FALLBACK_CHARS_PER_TOKEN}"
 
 
 def estimate_text_tokens(text: str | None) -> int:
     if not text:
         return 0
+    if _encoder_state == "unavailable":
+        warm_up()  # rate-limited background retry
     if _encoder_state == "ready" and _encoder is not None:
         try:
             return len(_encoder.encode(text, disallowed_special=()))
         except Exception:
             pass
     return math.ceil(len(text) / FALLBACK_CHARS_PER_TOKEN)
+
+
+def truncate_to_tokens(text: str, max_tokens: int) -> str:
+    """The beginning of ``text`` within about ``max_tokens`` (no marker added)."""
+    if max_tokens <= 0 or not text:
+        return ""
+    if _encoder_state == "ready" and _encoder is not None:
+        try:
+            ids = _encoder.encode(text, disallowed_special=())
+            return text if len(ids) <= max_tokens else _encoder.decode(ids[:max_tokens])
+        except Exception:
+            pass
+    max_chars = int(max_tokens * FALLBACK_CHARS_PER_TOKEN)
+    return text if len(text) <= max_chars else text[:max_chars]
 
 
 def _content_text(content: Any) -> str:

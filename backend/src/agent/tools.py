@@ -394,19 +394,32 @@ _SEVERITY_LINE_LIST = (
     "and no expert review exists. Do not assign MAJOR/MODERATE/MINOR yourself."
 )
 
-# Interaction records written out for the model per check. Every record is
-# still registered as a source (the user sees all of them as source cards);
-# the model sees the first ones plus an explicit count of the rest, so a long
-# medication list cannot push the request over the provider's per-request
-# token limit and nothing is dropped silently.
+# Interaction records written out WITH their DrugBank text per check. Later
+# records are listed by name and citation number only (about 15 tokens each),
+# so a long medication list cannot push the request over the provider's
+# per-request token limit, and the model can still name and cite every
+# record (the UI shows the sources an answer cites).
 _MAX_RECORDS_SHOWN = 15
 
 
-def _interaction_record_lines(interactions, tool_name: str, metadata_for) -> tuple[list[str], list[dict]]:
-    """Numbered record lines for the model, plus one source per record."""
+def _interaction_record_lines(
+    interactions, tool_name: str, metadata_for, priority_ids=None,
+) -> tuple[list[str], list[dict]]:
+    """Numbered record lines for the model, plus one source per record.
+
+    Records involving ``priority_ids`` (the drugs the user just asked about)
+    come first. The first _MAX_RECORDS_SHOWN records carry their DrugBank
+    text; every further record is still listed by name with its citation
+    number (without text), so the model can name and cite it and the user can
+    open its source card — nothing is dropped from the answer.
+    """
+    priority = set(priority_ids or ())
+    ordered = list(interactions)
+    if priority:
+        ordered.sort(key=lambda it: 0 if (it.drug1_id in priority or it.drug2_id in priority) else 1)
     lines = [_SEVERITY_LINE_LIST, ""]
     sources: list[dict] = []
-    for i, interaction in enumerate(interactions, 1):
+    for i, interaction in enumerate(ordered, 1):
         src = _make_interaction_source(
             tool_name=tool_name,
             drug_a=interaction.drug1_name,
@@ -416,17 +429,17 @@ def _interaction_record_lines(interactions, tool_name: str, metadata_for) -> tup
             extra_metadata=metadata_for(interaction),
         )
         sources.append(src)
+        head = f"{i}. **{interaction.drug1_name}** + **{interaction.drug2_name}** [{_ref_num(src['ref'])}]"
         if i <= _MAX_RECORDS_SHOWN:
-            lines.append(
-                f"{i}. **{interaction.drug1_name}** + **{interaction.drug2_name}** [{_ref_num(src['ref'])}]"
-            )
+            lines.append(head)
             lines.append(f"   DrugBank text: {interaction.description}")
-    hidden = len(interactions) - _MAX_RECORDS_SHOWN
-    if hidden > 0:
+        else:
+            lines.append(f"{head} (DrugBank text not shown)")
+    if len(ordered) > _MAX_RECORDS_SHOWN:
         lines.append(
-            f"{hidden} more documented record(s) are not shown here (provider size limit); the user "
-            f"sees all {len(interactions)} as source cards. Say that the list is longer than shown "
-            "and do not describe records you were not shown."
+            f"Records {_MAX_RECORDS_SHOWN + 1}-{len(ordered)} are listed without their DrugBank text "
+            "(provider size limit): name and cite them, but do not describe what they say; the "
+            "user can open each cited source card for its text."
         )
     return lines, sources
 
@@ -674,7 +687,7 @@ def get_drug_info(
     semantic_search: Annotated[bool, 'Semantic name matching; use if the exact drug name is not given.'] = False,
 ) -> str:
     """
-    Get a drug's DrugBank record: what it is/does, indications, mechanism, side effects/toxicity, pharmacokinetics, properties.
+    Get a drug's DrugBank record: what it is/does, indications, mechanism, properties; side effects/toxicity and pharmacokinetics only with detail='high'.
     """
     try:
         logger.debug(f"[TOOL] get_drug_info called with drug_name='{drug_name}', detail='{detail}'")
@@ -981,9 +994,8 @@ def check_drug_interactions(
             )
 
         _store_sources(interaction_sources, tool_name="check_drug_interactions")
-        shown_sources = interaction_sources[:_MAX_RECORDS_SHOWN]
         parts.append(
-            f"\n[Sources: {', '.join('[' + _ref_num(s['ref']) + ']' for s in shown_sources)} — DrugBank interaction table]"
+            f"\n[Sources: {', '.join('[' + _ref_num(s['ref']) + ']' for s in interaction_sources)} — DrugBank interaction table]"
         )
         return "\n".join(parts)
 
@@ -1537,6 +1549,7 @@ def analyze_patient_medications(
                 response.interactions,
                 tool_name="analyze_patient_medications",
                 metadata_for=lambda _it: {"patient_id": response.patient_id},
+                priority_ids=resolution.ids,
             )
             patient_sources.extend(record_sources)
             parts.extend(record_lines)
@@ -1569,7 +1582,10 @@ def analyze_patient_medications(
 # text says so.
 _PUBMED_DEFAULT_ARTICLES = 5
 _PUBMED_MAX_ARTICLES = 10
+# Abstract characters per article: the full budget for up to 5 articles and
+# less for 6-10, so ten articles plus a patient check still fit one request.
 _PUBMED_ABSTRACT_CHARS = 900
+_PUBMED_ABSTRACT_CHARS_MANY = 550
 
 # How to synthesise PubMed results. These rules used to be in the system
 # prompt, sent with every model call; they only matter once articles are in
@@ -1593,23 +1609,111 @@ _PUBMED_USAGE_RULES = (
     "pharmacovigilance, guidelines, the subgroup sub-query), and say when the evidence is "
     "concentrated in one group.",
     "- End with a short 'Limitations' note on what these articles do not cover.",
+    "- DOIs, links, full abstracts and detailed metrics are on each article's source card; "
+    "do not invent them.",
 )
 
 
-def _pubmed_header(title: str, requested: int, shown_cap: int) -> list[str]:
+def _pubmed_abstract_chars(article_count: int) -> int:
+    return _PUBMED_ABSTRACT_CHARS if article_count <= _PUBMED_DEFAULT_ARTICLES else _PUBMED_ABSTRACT_CHARS_MANY
+
+
+def _pubmed_header(title: str, requested: int, shown_cap: int, notes: list[str] | None = None) -> list[str]:
     lines = [title, *_PUBMED_USAGE_RULES]
     if requested > shown_cap:
         lines.append(
-            f"NOTE: {requested} articles were requested; at most {shown_cap} are retrieved per "
-            "search to stay within the language model provider's limits. Tell the user."
+            f"NOTE: {requested} articles were requested; one answer can show at most {shown_cap} "
+            "(language model provider limit). Do not run more searches to reach the requested "
+            "number: answer with these and tell the user."
         )
+    lines.extend(notes or [])
     lines.append("")
     return lines
 
 
-def _pubmed_article_lines(article, ref_num: str, warnings: list) -> list[str]:
+def _abstract_section_rank(label: str) -> int:
+    """Structured-abstract sections, most important first when space is short."""
+    label = label.upper()
+    if label.startswith(("CONCLUSION", "INTERPRETATION", "IMPLICATION")):
+        return 0
+    if label.startswith(("RESULT", "FINDING", "MAIN OUTCOME", "OUTCOME")):
+        return 1
+    return 2
+
+
+def _clip_abstract(abstract: str, limit: int, ref_num: str) -> str:
+    """Shorten an abstract to about ``limit`` characters without hiding its findings.
+
+    Structured abstracts ("LABEL: text" lines, as the PubMed service builds
+    them) keep CONCLUSIONS first, then RESULTS, then other sections while they
+    fit; unstructured ones keep their beginning and end. The marker names what
+    was left out and forbids stating findings that are not shown.
+    """
+    if len(abstract) <= limit:
+        return abstract
+    tail = f"do not state findings that are not in the text above; full abstract in source [{ref_num}]]"
+    parts = [p for p in abstract.split("\n") if p.strip()]
+    labels = [p.split(":", 1)[0].strip() if ":" in p[:40] else "" for p in parts]
+    if len(parts) > 1 and all(labels):
+        budget = limit
+        kept: dict[int, str] = {}
+        for idx in sorted(range(len(parts)), key=lambda i: (_abstract_section_rank(labels[i]), i)):
+            text = parts[idx]
+            if len(text) <= budget:
+                kept[idx] = text
+                budget -= len(text) + 1
+            elif _abstract_section_rank(labels[idx]) < 2 and budget >= 200:
+                kept[idx] = text[:budget].rsplit(" ", 1)[0].rstrip() + " \u2026"
+                budget = 0
+        if kept:
+            omitted = [labels[i] for i in range(len(parts)) if i not in kept]
+            cut = [labels[i] for i in sorted(kept) if kept[i] != parts[i]]
+            what = []
+            if omitted:
+                what.append(", ".join(omitted) + " not shown")
+            if cut:
+                what.append(", ".join(cut) + " cut short")
+            body = "\n".join(kept[i] for i in sorted(kept))
+            return f"{body}\n[abstract shortened: {'; '.join(what)} \u2014 {tail}"
+    head_chars = min(300, limit // 3)
+    head = abstract[:head_chars].rsplit(" ", 1)[0].rstrip()
+    end = abstract[-(limit - head_chars):].split(" ", 1)[-1].lstrip()
+    return f"{head} \u2026 {end}\n[abstract shortened: middle part not shown \u2014 {tail}"
+
+
+def _interleave_by_sub_query(articles, queries, limit: int) -> list:
+    """Up to ``limit`` articles, taking turns between sub-queries.
+
+    The merged pool is sorted by confidence only, so one sub-query (often the
+    general one, with highly cited meta-analyses) could fill every slot and the
+    mandatory subgroup sub-query would vanish. Confidence order is kept within
+    each sub-query.
+    """
+    if len(queries) < 2:
+        return list(articles[:limit])
+    by_query = {q: [] for q in queries}
+    others = []
+    for article in articles:
+        q = getattr(article, "source_query", "") or ""
+        (by_query[q] if q in by_query else others).append(article)
+    queues = [by_query[q] for q in queries] + [others]
+    picked: list = []
+    while len(picked) < limit and any(queues):
+        for queue in queues:
+            if queue and len(picked) < limit:
+                picked.append(queue.pop(0))
+    return picked
+
+
+def _pubmed_article_lines(
+    article, ref_num: str, warnings: list, abstract_chars: int = _PUBMED_ABSTRACT_CHARS,
+    sub_query: str | None = None,
+) -> list[str]:
     """Compact LLM-facing block for one article (details stay in its source)."""
-    lines = [f"[Article {ref_num} \u2014 citation tag [{ref_num}]]", f"Title: {article.title}"]
+    lines = [f"[Article {ref_num} \u2014 citation tag [{ref_num}]]"]
+    if sub_query:
+        lines.append(f"Sub-query: {sub_query}")
+    lines.append(f"Title: {article.title}")
     meta = []
     if article.journal:
         meta.append(f"Journal: {article.journal}")
@@ -1627,14 +1731,17 @@ def _pubmed_article_lines(article, ref_num: str, warnings: list) -> list[str]:
             ("recency", "recency"), ("evidence_level", "evidence"), ("relevance", "relevance"),
         )
     )
+    raw = []
+    if isinstance(getattr(article, "citation_count", None), int):
+        raw.append(f"cited {article.citation_count}x")
+    if isinstance(getattr(article, "fwci", None), (int, float)):
+        raw.append(f"FWCI {article.fwci:.2f}")
     study = ", ".join(article.publication_types) if article.publication_types else "Unknown"
-    lines.append(f"Study type: {study} | Confidence: {article.confidence_score}/100 ({scores})")
+    quality = f"Study type: {study} | Confidence: {article.confidence_score}/100 (sub-scores /100: {scores})"
+    lines.append(quality + (" | " + ", ".join(raw) if raw else ""))
     if warnings:
         lines.append("WARNINGS: " + "; ".join(warnings))
-    abstract = article.abstract or ""
-    if len(abstract) > _PUBMED_ABSTRACT_CHARS:
-        cut = abstract[:_PUBMED_ABSTRACT_CHARS].rsplit(" ", 1)[0].rstrip()
-        abstract = f"{cut} \u2026 [abstract shortened; full abstract in source [{ref_num}]]"
+    abstract = _clip_abstract(article.abstract, abstract_chars, ref_num) if article.abstract else ""
     lines.append(f"Abstract: {abstract}" if abstract else "Abstract: (none)")
     if article.full_text_available and article.full_text_sections:
         lines.append(
@@ -1652,7 +1759,7 @@ def search_pubmed(
         "Specific query, MUST be in English (e.g. 'heart failure', not a Turkish term); MeSH terms when possible; AND/OR for precision.",
     ],
     num_articles: Annotated[
-        int, "Articles to retrieve: the user's number if given, else the default 5 (never ask); max 10."
+        int, "Articles to retrieve: the user's number if given (pass it even if above 10; the tool caps it and says so), else the default 5 (never ask); max 10."
     ] = _PUBMED_DEFAULT_ARTICLES,
 ) -> str:
     """
@@ -1767,7 +1874,9 @@ def search_pubmed(
             
             ref_id = _next_ref_id()
             ref_num = _ref_num(ref_id)
-            result_parts.extend(_pubmed_article_lines(article, ref_num, warnings))
+            result_parts.extend(_pubmed_article_lines(
+                article, ref_num, warnings, abstract_chars=_pubmed_abstract_chars(len(context_articles)),
+            ))
 
             source_entry = {
                 "ref": ref_id,
@@ -1845,7 +1954,13 @@ def _build_pubmed_response(
         high_relevance = articles[:1] if articles else []
 
     MAX_CONTEXT = max(1, min(int(max_articles), _PUBMED_MAX_ARTICLES))
-    context_articles = high_relevance[:MAX_CONTEXT]
+    context_articles = _interleave_by_sub_query(high_relevance, queries, MAX_CONTEXT)
+    multi = len(queries) > 1
+    covered = {getattr(a, "source_query", "") for a in context_articles}
+    empty_notes = [
+        f'NOTE: no article from sub-query "{q}" passed the relevance filter; say so.'
+        for q in queries if multi and q not in covered
+    ]
 
     if not context_articles:
         return (
@@ -1858,6 +1973,7 @@ def _build_pubmed_response(
         f"RETRIEVED PUBMED ARTICLES for queries: {' | '.join(queries)}",
         requested=requested if requested is not None else int(max_articles),
         shown_cap=_PUBMED_MAX_ARTICLES,
+        notes=empty_notes,
     )
 
     combined_query = " ".join(queries)
@@ -1871,7 +1987,10 @@ def _build_pubmed_response(
         )
         ref_id = _next_ref_id()
         ref_num = _ref_num(ref_id)
-        result_parts.extend(_pubmed_article_lines(article, ref_num, warnings))
+        result_parts.extend(_pubmed_article_lines(
+            article, ref_num, warnings, abstract_chars=_pubmed_abstract_chars(len(context_articles)),
+            sub_query=(getattr(article, "source_query", "") or None) if multi else None,
+        ))
 
         search_sources.append({
             "ref": ref_id,
@@ -1938,7 +2057,7 @@ def search_pubmed_multi(
     ],
     num_articles: Annotated[
         int,
-        "Total articles in the merged result: the user's number if given, else the default 5 (never ask); max 10.",
+        "Total articles in the merged result: the user's number if given (pass it even if above 10; the tool caps it and says so), else the default 5 (never ask); max 10.",
     ] = _PUBMED_DEFAULT_ARTICLES,
 ) -> str:
     """
