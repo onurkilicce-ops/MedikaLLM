@@ -157,6 +157,56 @@ uv run python scripts/check_live_stack.py --only normal_chat --out live_check.js
 
 Rapor şifre, API anahtarı, yetki başlığı veya bağlantı URL'si içermez; hatalar yalnız tür adıyla (`ConnectionError` vb.) yazılır. Bir senaryonun başarılı olması o yanıtın tıbbi doğruluğunu kanıtlamaz; "etkileşim kaydı yok" güvenli anlamına gelmez.
 
+## Dal adlandırma
+
+Depoda yalnız şu dal biçimleri kullanılır:
+
+| Dal | Ne için |
+|---|---|
+| `main` | Varsayılan, kararlı dal |
+| `feat/<kisa-ozellik-adi>` | Yeni özellik (ör. `feat/m03-mechanism`) |
+| `fix/<kisa-hata-adi>` | Hata düzeltmesi (ör. `fix/r1-live-check`) |
+| `chore/<kisa-bakim-adi>` | Bakım, CI, ara anlık görüntü (ör. `chore/stage-0-1-snapshot`) |
+| `docs/<kisa-dokuman-adi>` | Yalnız belge (ör. `docs/r1-o1-kabul-kaydi`) |
+
+Adlarda kişi adı ya da tarih yoktur; kısa, küçük harfli ve tireyle yazılır. Her dal bir
+pull request ile birleştirilir; CI pull request üzerinde çalışır.
+
+**Not:** Bir pull request açıkken onun kaynak dalını GitHub'da yeniden adlandırmak o
+PR'ı kapatır. Gerekirse yeni adla yeni bir PR açılır.
+
+**28 Kasım 2026'daki geçiş.** Eski dallar yeni adlara taşındı:
+
+- `team-test/2026-11-22-checkpoint` → `main`
+- `team-test/2026-11-23-stage-0-1` → `chore/stage-0-1-snapshot`
+- `feat/onur/m02-timing` → `feat/m02-m03-timing-mechanism`
+- `feat/onur/m03-mechanism` → `feat/m03-mechanism`
+- `docs/onur/r1-o1-kabul-kaydi` → `docs/r1-o1-kabul-kaydi`
+- `fix/onur/r1-live-check` → `fix/r1-live-check`
+- `feat/onur/r1-baseline` → `feat/r1-baseline`
+
+Açık PR'lar #1, #3, #5 ve #7 bu yüzden kapandı; yerlerine #8, #9, #10 ve #11 açıldı.
+
+Daha önce klonladıysanız bir kez çalıştırın:
+
+```powershell
+git fetch --prune origin
+```
+
+```powershell
+git remote set-head origin -a
+```
+
+Ardından yerel dallarınızı yeni adlarına taşıyın:
+
+```powershell
+git branch -m <eski-ad> <yeni-ad>
+```
+
+```powershell
+git branch -u origin/<yeni-ad> <yeni-ad>
+```
+
 ## Sorun bildirme
 
 İşletim sistemi, `git rev-parse --short HEAD`, çalıştırdığınız adım, beklediğiniz sonuç ve kişisel bilgileri/anahtarları temizlenmiş hata metni.
