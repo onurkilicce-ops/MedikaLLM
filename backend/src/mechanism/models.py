@@ -25,7 +25,7 @@ Role = Literal["substrate", "inhibitor", "inducer", "other"]
 Organ = Literal["kidney", "liver", "bile_feces", "lungs"]
 SourceField = Literal["route_of_elimination", "metabolism", "clearance"]
 OrganNote = Literal["negated_or_minor", "uncertain_statement", "condition_context", "condition_also_mentioned",
-                    "metabolite_mentioned", "other_subject_possible"]
+                    "metabolite_mentioned", "other_subject_possible", "other_drug_named", "animal_study"]
 Mechanism = Literal["inhibition", "induction", "shared_substrate"]
 Effect = Literal[
     "victim_exposure_may_increase",      # enzyme inhibited -> victim builds up
@@ -80,6 +80,7 @@ class OrganMention(_Out):
     quote_truncated: bool
     quote_cut_before: bool       # the window starts after the sentence start
     quote_cut_after: bool        # the window ends before the sentence end
+    other_drugs: List[str]       # other DrugBank drugs named in the sentence, as written there
 
 
 class DrugText(_Out):

@@ -11,7 +11,7 @@ from typing import Dict, List, Sequence, Tuple
 
 from sqlalchemy import and_, or_, select
 
-from ..db.sql_models import Drug, DrugCarrier, DrugEnzyme, DrugInteraction, DrugTransporter
+from ..db.sql_models import Drug, DrugCarrier, DrugEnzyme, DrugInteraction, DrugSynonym, DrugTransporter
 from ..timing.repository import TimingDataUnavailable, _run  # noqa: F401  (re-exported for the router)
 from .rules import ProteinRow
 
@@ -73,5 +73,28 @@ def read_mechanism_data(drug_ids: Sequence[str]) -> Tuple[
                 if src != r.drug2_drugbank_id:
                     recorded.append((src, r.drug2_drugbank_id, r.description or ""))
         return by_id, proteins, recorded
+
+    return _run(q)
+
+
+def find_drug_names(candidates: Sequence[str]) -> Dict[str, set]:
+    """Which candidate strings are a DrugBank drug name or synonym (exact,
+    lower-case): ``{name: {drug_id, ...}}``. Used to tell whether a sentence of
+    one drug's record names another drug. Read-only; bounded by the candidates."""
+    cands = sorted({c for c in candidates if c})
+    if not cands:
+        return {}
+
+    def q(session):
+        out: Dict[str, set] = {}
+        for i in range(0, len(cands), 500):
+            chunk = cands[i:i + 500]
+            for r in session.execute(select(Drug.name_lower, Drug.drug_id).where(Drug.name_lower.in_(chunk))):
+                out.setdefault(r[0], set()).add(r[1])
+            for r in session.execute(select(DrugSynonym.synonym_lower, Drug.drug_id)
+                                     .join(Drug, Drug.id == DrugSynonym.drug_pk)
+                                     .where(DrugSynonym.synonym_lower.in_(chunk))):
+                out.setdefault(r[0], set()).add(r[1])
+        return out
 
     return _run(q)

@@ -11,7 +11,8 @@ const fieldLabel = {route_of_elimination:'Atılım yolu', metabolism:'Metabolizm
 const noteLabel = {negated_or_minor:'kayıt bu yolun olmadığını ya da çok küçük olduğunu söylüyor', uncertain_statement:'kayıt bunun bilinmediğini/belirsiz olduğunu söylüyor',
   condition_context:'yalnız hasta durumu bağlamı (ör. böbrek yetmezliğinde) — atılım yolu ifadesi değil',
   condition_also_mentioned:'cümlede ayrıca bir hasta durumu geçiyor',
-  metabolite_mentioned:'metabolit geçiyor; ifade ana ilaca ait olmayabilir', other_subject_possible:'cümlede başka bir ilaç/karşılaştırma geçiyor; bu ilaca ait olmayabilir'};
+  metabolite_mentioned:'metabolit geçiyor; ifade ana ilaca ait olmayabilir', other_subject_possible:'cümlede başka bir ilaç/karşılaştırma geçiyor; bu ilaca ait olmayabilir',
+  other_drug_named:'cümlede başka bir ilaç adı geçiyor; ifade o ilaca ait olabilir', animal_study:'hayvan çalışması; insana uygulanmayabilir'};
 // DrugBank known_action: is this protein part of the drug's OWN pharmacological action?
 // It does not say whether the drug affects or uses the protein.
 const knownLabel = {yes:'ilacın kendi etki mekanizmasının parçası (DrugBank)', no:'ilacın kendi etki mekanizmasının parçası olarak işaretli değil (bu, proteini etkilemediği anlamına gelmez)',
@@ -79,11 +80,20 @@ export function visibleExplanations(list) {
   });
 }
 
+// denied / uncertain / condition-only: not a clearing route as stated
 const FLAGGED = ['negated_or_minor', 'uncertain_statement', 'condition_context'];
+// the sentence may be about another drug, an animal or a metabolite: whose route it is, is unclear
+const ATTRIBUTION = ['other_drug_named', 'other_subject_possible', 'animal_study', 'metabolite_mentioned'];
+export function organGroup(o) {
+  if (o.notes.some(n => FLAGGED.includes(n))) return 'flagged';
+  if (o.notes.some(n => ATTRIBUTION.includes(n))) return 'attribution';
+  return 'route';
+}
 function OrganItem({o}) {
   return <li className={o.notes.length ? 'm03-flag' : ''}>
     <strong>{organLabel[o.organ]}</strong> <small>({fieldLabel[o.source_field]})</small>
     {o.notes.length > 0 && <small> · dikkat: {o.notes.map(n => noteLabel[n]).join('; ')}</small>}
+    {o.other_drugs?.length > 0 && <small> · geçen ilaç: {o.other_drugs.join(', ')}</small>}
     <blockquote>{o.quote_cut_before && '[…] '}{o.quote}{o.quote_cut_after && ' […]'}</blockquote></li>;
 }
 
@@ -112,11 +122,15 @@ export default function Mechanism({mechanism, error}) {
         <p><small>Kayıt metnindeki ifadeler. Pay ve yüzdeler alıntının içinde okunmalıdır; sistem bir organa yüzde atamaz.</small></p>
         {d.organs.length === 0 ? <p>Kayıt metninde organ yolu ifadesi bulunamadı{d.texts.length === 0 ? ' (atılım/metabolizma/klirens metni yok)' : ''}.</p>
           : <>
-            {d.organs.some(o => !o.notes.some(n => FLAGGED.includes(n))) ? <ul className="m03-organs" data-testid="m03-organs-route">
-              {d.organs.filter(o => !o.notes.some(n => FLAGGED.includes(n))).map((o, i) => <OrganItem key={i} o={o} />)}</ul>
-              : <p>Kayıtta bir organın bu ilacı temizlediğini söyleyen olumlu bir ifade yok.</p>}
-            {d.organs.some(o => o.notes.some(n => FLAGGED.includes(n))) && <details open><summary>Kayıtta olumsuz, belirsiz veya yalnız hasta durumu olarak geçen organlar</summary>
-              <ul className="m03-organs" data-testid="m03-organs-flagged">{d.organs.filter(o => o.notes.some(n => FLAGGED.includes(n))).map((o, i) => <OrganItem key={i} o={o} />)}</ul></details>}
+            {d.organs.some(o => organGroup(o) === 'route') ? <ul className="m03-organs" data-testid="m03-organs-route">
+              {d.organs.filter(o => organGroup(o) === 'route').map((o, i) => <OrganItem key={i} o={o} />)}</ul>
+              : <p>Kayıtta bir organın bu ilacı temizlediğini açıkça söyleyen bir ifade yok.</p>}
+            {d.organs.some(o => organGroup(o) === 'attribution') && <details open><summary>Aidiyeti belirsiz ifadeler</summary>
+              <p><small>Bu cümleler başka bir ilacı, bir karşılaştırmayı, bir hayvan çalışmasını veya bir metaboliti anlatıyor olabilir.
+                Seçilen ilacın atılım yolu olarak sayılmadı; alıntıyı okuyun.</small></p>
+              <ul className="m03-organs" data-testid="m03-organs-attribution">{d.organs.filter(o => organGroup(o) === 'attribution').map((o, i) => <OrganItem key={i} o={o} />)}</ul></details>}
+            {d.organs.some(o => organGroup(o) === 'flagged') && <details open><summary>Kayıtta olumsuz, belirsiz veya yalnız hasta durumu olarak geçen organlar</summary>
+              <ul className="m03-organs" data-testid="m03-organs-flagged">{d.organs.filter(o => organGroup(o) === 'flagged').map((o, i) => <OrganItem key={i} o={o} />)}</ul></details>}
           </>}
         {d.organs_truncated && <p><small>Organ ifadeleri listesi kısaltıldı; tam metin aşağıda.</small></p>}
         <h4>Hangi proteinler işliyor?</h4>
