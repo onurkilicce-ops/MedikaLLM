@@ -1,8 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { timingRequest } from './client';
+import { mechanismRequest } from './mechanismClient';
 import { quantity, conditionText, httpError, safeUrl, fieldStatus, coverageStatus, num, adviceStatusText } from './format';
 import Timeline from './Timeline';
+import Mechanism from './Mechanism';
 import './timing.css';
 
 const foods = {breakfast:'Kahvaltı (aç karnına, öncesi)', dairy_alone:'Süt/yoğurt — öğün dışında tek başına',
@@ -60,6 +62,9 @@ export default function TimingPage() {
   const [advice,setAdvice] = useState(null);
   const [error,setError] = useState('');
   const [adviceError,setAdviceError] = useState('');
+  const [mechanism,setMechanism] = useState(null);
+  const [mechanismError,setMechanismError] = useState('');
+  const [mechanismBusy,setMechanismBusy] = useState(false);
   const [busy,setBusy] = useState(false);
   const requestRef = useRef(null);
   const revision = useRef(0);
@@ -92,7 +97,7 @@ export default function TimingPage() {
 
   function invalidate() {
     revision.current += 1; requestRef.current?.abort();
-    setResult(null); setAdvice(null); setError(''); setAdviceError(''); setBusy(false);
+    setResult(null); setAdvice(null); setError(''); setAdviceError(''); setMechanism(null); setMechanismError(''); setMechanismBusy(false); setBusy(false);
   }
   function add(item) {
     if (selected.length >= 10 || selected.some(x => x.drug_id === item.drug_id)) return;
@@ -102,11 +107,31 @@ export default function TimingPage() {
     invalidate(); setSelected(selected.filter(x => x.drug_id !== id));
     setContexts(Object.fromEntries(Object.entries(contexts).filter(([key]) => key !== id)));
   }
+  // M-03 alone for one drug: its organ/protein profile (M-02 needs two drugs)
+  function profileOnly() {
+    invalidate(); const current = revision.current;
+    const controller = new AbortController(); requestRef.current = controller; setMechanismBusy(true);
+    mechanismRequest(selected.map(x => x.drug_id), controller.signal).then(value => {
+      if (controller.signal.aborted || revision.current !== current) return;
+      if (value?.schema_version === 'm03-mechanism/1') setMechanism(value); else setMechanismError(httpError({}));
+    }, reason => { if (!controller.signal.aborted && revision.current === current) setMechanismError(httpError(reason)); })
+      .finally(() => { if (revision.current === current) setMechanismBusy(false); });
+  }
   async function compare() {
     invalidate(); const current = revision.current;
     const controller = new AbortController(); requestRef.current = controller; setBusy(true);
     const drug_ids = selected.map(x => x.drug_id);
     const body = {drug_ids, contexts:Object.entries(contexts).filter(([,v]) => v).map(([drug_id,profile_id]) => ({drug_id,profile_id})), foods:selectedFoods};
+    // M-03 is independent: it never delays or hides the M-02 results.
+    setMechanismBusy(true);
+    mechanismRequest(drug_ids, controller.signal).then(value => {
+      if (controller.signal.aborted || revision.current !== current) return;
+      // only an m03 contract is rendered; anything else is a technical error, never an empty 'no proteins'
+      if (value?.schema_version === 'm03-mechanism/1') setMechanism(value); else setMechanismError(httpError({}));
+    }, reason => {
+      if (controller.signal.aborted || revision.current !== current) return;
+      setMechanismError(httpError(reason));
+    }).finally(() => { if (revision.current === current) setMechanismBusy(false); });
     const [pk, intervals] = await Promise.allSettled([
       timingRequest('compare', {drug_ids}, controller.signal), timingRequest('advice', body, controller.signal),
     ]);
@@ -116,8 +141,8 @@ export default function TimingPage() {
     setBusy(false);
   }
   return <main className="m02-page">
-    <header className="m02-header"><div><p className="m02-eyebrow">MedicaLLM · M-02</p><h1>İlaç zamanlaması</h1>
-      <p>Kaynak metinleriyle süreleri karşılaştırın; uygun ürün koşullarında kaynaklı zamanlama önerilerini inceleyin.</p></div>
+    <header className="m02-header"><div><p className="m02-eyebrow">MedicaLLM · M-02 / M-03</p><h1>İlaç zamanlaması ve mekanizma</h1>
+      <p>Kaynak metinleriyle süreleri karşılaştırın; uygun ürün koşullarında kaynaklı zamanlama önerilerini inceleyin; ilaçları hangi organların ve proteinlerin işlediğini ve ortak protein üzerinden etkileşimi görün.</p></div>
       <Link to="/chat">Panele dön</Link></header>
     <p className="m02-note">Sağlık profesyonelleri için karar desteği. Doz hesabı veya kişisel kullanım takvimi üretmez.</p>
     {access === 'checking' && <p role="status">Erişim kontrol ediliyor…</p>}
@@ -149,6 +174,7 @@ export default function TimingPage() {
         <p>Öneri kataloğu sınırlıdır: belirli UK/US ürün etiketlerini kapsar. Bunların Türkiye’deki ürünle eşdeğerliği varsayılmaz.
           Ürün seçimi, kaynakta belirtilen uygulama yolu ve formülasyonu doğruladığınız anlamına gelir.</p>
         <button className="m02-primary" disabled={selected.length<2 || busy} onClick={compare}>{busy?'Karşılaştırılıyor…':'Karşılaştır'}</button>
+        {selected.length===1 && <button onClick={profileOnly} disabled={mechanismBusy}>Organ ve protein profilini göster (M-03)</button>}
         {busy && <p role="status">Veriler okunuyor…</p>}
         {error && <p role="alert">{error}</p>}
       </section>
@@ -189,6 +215,8 @@ export default function TimingPage() {
             {c.item_ids.map(id=>selected.find(x=>x.drug_id===id)?.name || foods[id] || id).join(' / ')}: <strong>{coverageStatus[c.status]}</strong><p>{c.reason}</p></li>)}</ul></details>
         </>}
       </section>}
+      {mechanismBusy && !mechanism && !mechanismError && <p role="status">Organ ve protein verileri okunuyor…</p>}
+      {(mechanism || mechanismError) && <Mechanism mechanism={mechanism} error={mechanismError} />}
     </>}
   </main>;
 }

@@ -49,6 +49,26 @@ describe('M02 live synthetic flow',()=>{
     expect(screen.queryByText('Değerler ve kaynaklar')).toBeNull();
     expect(screen.getByRole('button',{name:'Karşılaştır'}).disabled).toBe(true);
   });
+  it('M03: shows organs, proteins and the shared-enzyme explanation from PG',async()=>{
+    await login();mount();await add('Ciprofloxacin');await add('Uncertain agent');await compare();
+    const section=await screen.findByTestId('m03-mechanism',{}, {timeout:15000});
+    expect(section.textContent).toContain('Böbrek (idrar)');
+    expect(section.textContent).toContain('Safra / dışkı');
+    expect(section.textContent).toContain('[SYNTHETIC] About 50% is excreted unchanged in urine and 15% in feces.');
+    expect(section.textContent).not.toContain('metindeki pay');
+    const text=screen.getByTestId('m03-explanation').textContent;
+    expect(text).toContain('[SYNTHETIC] Ciprofloxacin, [SYNTHETIC] Uncertain agent ilacını işleyen [SYNTHETIC] Cytochrome P450 1A2 enzimini yavaşlatır');
+    expect(text).toContain('kanda birikebilir');
+    expect(section.textContent).toContain('The metabolism of Uncertain agent can be decreased');
+  });
+  it('M03: one drug opens its organ/protein profile from PG',async()=>{
+    await login();mount();await add('Ciprofloxacin');
+    fireEvent.click(screen.getByRole('button',{name:'Organ ve protein profilini göster (M-03)'}));
+    const section=await screen.findByTestId('m03-mechanism',{}, {timeout:15000});
+    expect(section.textContent).toContain('[SYNTHETIC] Cytochrome P450 1A2');
+    expect(section.textContent).toContain('yavaşlatır (inhibitör)');
+    expect(screen.queryAllByTestId('m03-pair')).toHaveLength(0);
+  });
   it('keeps an unresolved subject and an empty record out of the timeline',async()=>{
     await login();mount();await add('Uncertain agent');await add('Empty agent');await compare();
     expect(screen.queryAllByTestId('timeline-row')).toHaveLength(0);

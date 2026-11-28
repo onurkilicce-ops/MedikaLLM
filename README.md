@@ -140,6 +140,22 @@ olmaması ve teknik hata ayrıdır. Kaynak kapsamı [SOURCES.md](backend/src/tim
 alan sözleşmeleri [API.md](backend/src/timing/API.md)'dedir. Kadir'in ajanı/C1 ve
 Halil'in hasta ekranı bu akışın ön koşulu değildir.
 
+**M-03 (aynı ekran): organlar, enzimler ve taşıyıcılar.** Karşılaştırmadan sonra
+ekranın altında "Organlar, enzimler ve taşıyıcılar (M-03)" bölümü dolar. M-02
+sonuçlarını beklemez ve geciktirmez. Her ilaç için gösterilenler:
+
+- **Organlar:** hangi organların temizlediğini söyleyen kayıt cümleleri, birebir alıntıyla.
+  Organa yüzde atanmaz; yüzdeler alıntıda okunur.
+- **Proteinler:** DrugBank'in listelediği enzim, taşıyıcı ve taşıyıcı proteinler. İlacın
+  her birini kullanıp kullanmadığı (substrat), yavaşlatıp yavaşlatmadığı (inhibitör) ya
+  da hızlandırıp hızlandırmadığı (indükleyici) gösterilir.
+
+Her ilaç çifti için ortak bir insan proteini üzerinden açıklama yapılır (ör. "A, B'yi
+işleyen enzimi yavaşlatır; B kanda birikebilir"). DrugBank'in kendi etkileşim metni de
+yanında gösterilir. Ortak protein yokluğu "etkileşim yok" değildir. Uç
+`POST /api/mechanism/compare`; kurallar [RULES.md](backend/src/mechanism/RULES.md),
+sözleşme [API.md](backend/src/mechanism/API.md).
+
 ### Baştan sona sentetik deneme (gerçek DrugBank verisi gerekmez)
 
 Ön koşul: yalnız test için ayrılmış, çalışan yerel PostgreSQL ve yeni boş

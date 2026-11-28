@@ -6,7 +6,10 @@ import TimingPage, { Measurement } from './TimingPage';
 import Timeline from './Timeline';
 import { quantity, safeUrl } from './format';
 import { timingRequest } from './client';
+import { mechanismRequest } from './mechanismClient';
 vi.mock('./client',()=>({timingRequest:vi.fn()}));
+// M-03 section is tested in Mechanism.test.jsx; here it answers with an empty result.
+vi.mock('./mechanismClient',()=>({mechanismRequest:vi.fn(async()=>({schema_version:'m03-mechanism/1',drugs:[],pairs:[],notice:''}))}));
 
 const source={source_ref:'drugbank:DB00001',source_record_url:'https://go.drugbank.com/drugs/DB00001',source_field:'half_life',
   quote:'[SYNTHETIC] The half-life is 4-6 hours.[A1]',quote_start:0,quote_end:44,value_text:'4-6 hours',value_start:29,value_end:38,
@@ -124,4 +127,31 @@ it('plots ranges on one scale, supports large differences, omits review values',
 it('keeps mixed original units, bounds, nulls and rejects executable URLs',()=>{
   expect(quantity({kind:'range',lower:30,upper:1,lower_unit:'min'},'hours')).toBe('30 min–1 hours');
   expect(quantity(null)).toBe('—');expect(safeUrl('javascript:alert(1)')).toBeNull();
+});
+
+describe('M03 on the M-02 screen',()=>{
+  it('M03: a hanging mechanism request never delays or hides the M-02 results',async()=>{
+    mechanismRequest.mockImplementationOnce(()=>new Promise(()=>{}));
+    mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
+    expect(await screen.findByText('Değerler ve kaynaklar')).toBeTruthy();
+    expect(screen.getByText('Kaynaklı zaman aralığı değerlendirmesi')).toBeTruthy();
+    expect(screen.getByText('Organ ve protein verileri okunuyor…')).toBeTruthy();
+    expect(screen.getByRole('button',{name:'Karşılaştır'}).disabled).toBe(false);
+  });
+  it('M03: a failed mechanism request is a technical error next to intact M-02 results',async()=>{
+    mechanismRequest.mockImplementationOnce(async()=>{throw Object.assign(new Error(),{status:503});});
+    mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
+    expect(await screen.findByText(/Mekanizma kontrolü tamamlanmadı/)).toBeTruthy();
+    expect(screen.getByText('Değerler ve kaynaklar')).toBeTruthy();
+  });
+  it('M03: one selected drug can open its organ/protein profile without an M-02 comparison',async()=>{
+    mount();await screen.findByLabelText(/İlaç adı/);
+    fireEvent.change(screen.getByLabelText(/İlaç adı/),{target:{value:'Drug'}});
+    fireEvent.click(await screen.findByRole('button',{name:/Ekle:.*Drug A/}));
+    expect(screen.getByRole('button',{name:'Karşılaştır'}).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button',{name:'Organ ve protein profilini göster (M-03)'}));
+    await waitFor(()=>expect(mechanismRequest).toHaveBeenCalledWith(['DB00001'], expect.anything()));
+    expect(await screen.findByTestId('m03-mechanism')).toBeTruthy();
+    expect(screen.queryByText('Değerler ve kaynaklar')).toBeNull();
+  });
 });

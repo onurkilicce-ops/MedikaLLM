@@ -14,6 +14,34 @@ bağımsız olarak yeniden doğrulanmadı.
 
 ## Tur 1 — Güncel ilerleme kaydı (başlangıç 2026-11-24)
 
+### M-03 ilk sürüm — 28 Kasım 2026 (Claude; Astra kontrolü bekliyor)
+
+**Kullanıcı kararları (2026-11-27):**
+- M-03'ü Onur yapacak.
+- Dal M-02'nin üzerine kurulur: `feat/onur/m03-mechanism`. Önce PR #5 birleştirilmelidir.
+- M-03, M-02 ile aynı ekranda (`/timing`) gösterilir.
+
+**Yapılanlar:**
+- Uç `POST /api/mechanism/compare` (`m03-mechanism/1`): DrugBank'in enzim, taşıyıcı ve
+  taşıyıcı protein listeleri ile atılım/metabolizma/klirens metni salt okunur okunur.
+- Gösterilenler:
+  - organ yolu ifadeleri, birebir alıntıyla (organa yüzde atanmaz);
+  - her proteinin rolü (kullanır / yavaşlatır / hızlandırır);
+  - ortak insan proteini üzerinden çift açıklaması.
+- Beş çekişmeli inceleme turu yapıldı. Her bulgu regresyon testi oldu (182 M-03 birim
+  testi).
+- Sonuçlar:
+  - katı tam paket **1718 geçti, 0 atlandı**;
+  - frontend 80 test ve derleme geçti;
+  - canlı DOM → HTTP → PG akışı 8/8;
+  - tarayıcıda görsel kontrol yapıldı.
+- **Klinik/uzman kabulü yok.** Gerçek DrugBank verisiyle doğruluk ölçülmedi. Organ
+  çıkarımı kural tabanlıdır; sınırlar RULES.md §4'te.
+
+Ayrıntı ve Astra kontrol listesi:
+[M03_Claude_Teslim_Raporu.md](docs/M03_Claude_Teslim_Raporu.md); kurallar
+[RULES.md](backend/src/mechanism/RULES.md), sözleşme [API.md](backend/src/mechanism/API.md).
+
 ### M-02 denetim düzeltmeleri — 27 Kasım 2026 (Claude; Astra kontrolü bekliyor)
 
 Claude'un bağımsız denetimi Astra teslimini "teknik teslime hazır değil" buldu.
