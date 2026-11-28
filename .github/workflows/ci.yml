@@ -1,12 +1,13 @@
 name: CI
 
-# Runs on every PR, on pushes to main and to the team integration branches,
-# and on demand. No deployment, no health monitor, no paid provider, no API
-# key and no DrugBank data are involved.
+# Runs on every PR, on pushes to main, and on demand. Work branches
+# (feat/, fix/, chore/, docs/) are tested through their pull requests.
+# No deployment, no health monitor, no paid provider, no API key and no
+# DrugBank data are involved.
 on:
   pull_request:
   push:
-    branches: [main, "team-test/**"]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
