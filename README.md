@@ -2,7 +2,7 @@
 
 MedicaLLM, hekim ve eczacı gibi sağlık profesyonellerinin ilaç etkileşimlerini kaynaklarıyla incelemesine yardımcı olan bir web uygulamasıdır (React/Vite arayüz, Python/FastAPI arka uç, PostgreSQL/DrugBank, araç kullanan sohbet ajanı). Bu depo tamamlanmış ürün veya klinik olarak doğrulanmış sürüm **değildir**. Testlerin geçmesi klinik kabul anlamına gelmez; "kayıt yok" sonucu "güvenli" demek değildir.
 
-- Ortak entegrasyon dalı: `team-test/2026-11-23-stage-0-1` (başlangıç `f549e597e41539704e9b39a5ff0e30e6af7c8cd8`). `main` dalına yükleme veya sunucuya dağıtım yapılmaz.
+- Ana dal: `main`. İş, sabit `feat` / `fix` / `chore` / `docs` dallarından pull request ile `main`'e gelir (aşağıda "Dallar ve iş akışı"). Sunucuya dağıtım yapılmaz.
 - Güncel ilerleme kaydı: [STATUS.md](STATUS.md) → "Tur 1" bölümü (görev sınırları, sözleşmeler C1–C3, kabul edilen PR/SHA'lar). Bağımsız inceleme: [REVIEW_2026-11-23.md](REVIEW_2026-11-23.md). Geçmiş kayıt: [TEAM_CHECKPOINT.md](TEAM_CHECKPOINT.md).
 - Parola değiştirme (`POST /api/auth/change-password`) ve hekimin hasta analizi (`POST /api/drugs/analyze-patient`) hataları R1-O1 görev dalında düzeltildi; entegrasyon dalına alınıp alınmadığını STATUS "Tur 1" tablosundan kontrol edin.
 
@@ -23,7 +23,7 @@ Eski `start-local.cmd` başlatıcısı yalnız bir geliştiricinin bilgisayarın
 Mevcut bir klasörün üzerine klonlamayın; yeni, boş bir klasör seçin.
 
 ```powershell
-git clone --branch team-test/2026-11-23-stage-0-1 https://github.com/onurkilicce-ops/MedikaLLM.git MedikaLLM
+git clone https://github.com/onurkilicce-ops/MedikaLLM.git MedikaLLM
 cd MedikaLLM
 git rev-parse HEAD
 Copy-Item .env.example .env
@@ -302,35 +302,50 @@ uv run python scripts/check_live_stack.py --only normal_chat --out live_check.js
 
 Rapor şifre, API anahtarı, yetki başlığı veya bağlantı URL'si içermez; hatalar yalnız tür adıyla (`ConnectionError` vb.) yazılır. Bir senaryonun başarılı olması o yanıtın tıbbi doğruluğunu kanıtlamaz; "etkileşim kaydı yok" güvenli anlamına gelmez.
 
-## Dal adlandırma
+## Dallar ve iş akışı
 
-Depoda yalnız şu dal biçimleri kullanılır:
+Depoda yalnız beş **sabit** dal vardır. İş başına yeni dal açılmaz.
 
 | Dal | Ne için |
 |---|---|
-| `main` | Varsayılan, kararlı dal |
-| `feat/<kisa-ozellik-adi>` | Yeni özellik (ör. `feat/m03-mechanism`) |
-| `fix/<kisa-hata-adi>` | Hata düzeltmesi (ör. `fix/r1-live-check`) |
-| `chore/<kisa-bakim-adi>` | Bakım, CI, ara anlık görüntü (ör. `chore/stage-0-1-snapshot`) |
-| `docs/<kisa-dokuman-adi>` | Yalnız belge (ör. `docs/r1-o1-kabul-kaydi`) |
+| `main` | Varsayılan, kararlı dal. Doğrudan push yapılmaz |
+| `feat` | Yeni özellikler |
+| `fix` | Hata düzeltmeleri |
+| `chore` | Bakım, CI, bağımlılık, düzenleme |
+| `docs` | Yalnız belge değişiklikleri |
 
-Adlarda kişi adı ya da tarih yoktur; kısa, küçük harfli ve tireyle yazılır. Her dal bir
-pull request ile birleştirilir; CI pull request üzerinde çalışır.
+Akış: **dal → pull request → `main`**.
 
-**Not:** Bir pull request açıkken onun kaynak dalını GitHub'da yeniden adlandırmak o
-PR'ı kapatır. Gerekirse yeni adla yeni bir PR açılır.
+1. İşe başlamadan önce ilgili dalı `main` ile güncelleyin:
 
-**28 Kasım 2026'daki geçiş.** Eski dallar yeni adlara taşındı:
+   ```powershell
+   git switch chore
+   ```
 
-- `team-test/2026-11-22-checkpoint` → `main`
-- `team-test/2026-11-23-stage-0-1` → `chore/stage-0-1-snapshot`
-- `feat/onur/m02-timing` → `feat/m02-m03-timing-mechanism`
-- `feat/onur/m03-mechanism` → `feat/m03-mechanism`
-- `docs/onur/r1-o1-kabul-kaydi` → `docs/r1-o1-kabul-kaydi`
-- `fix/onur/r1-live-check` → `fix/r1-live-check`
-- `feat/onur/r1-baseline` → `feat/r1-baseline`
+   ```powershell
+   git pull --ff-only origin main
+   ```
 
-Açık PR'lar #1, #3, #5 ve #7 bu yüzden kapandı; yerlerine #8, #9, #10 ve #11 açıldı.
+2. Commit'leyip aynı dala push edin:
+
+   ```powershell
+   git push origin chore
+   ```
+
+3. GitHub'da `chore → main` pull request'i açın. CI pull request üzerinde çalışır; yeşilse
+   "Create a merge commit" ile birleştirilir. PR birleşince dal silinmez (depo ayarı:
+   otomatik silme kapalı).
+4. Aynı daldaki bir sonraki işe başlamadan önce 1. adımı tekrarlayın.
+
+Aynı dalda iki kişi aynı anda çalışacaksa önce birbirinizin işini çekin
+(`git pull --ff-only origin chore`), sonra push edin. Force push yapılmaz.
+
+**28 Kasım 2026'daki geçiş.**
+- Eski dallar (`team-test/…`, `feat/onur/…`, `feat/m03-mechanism`,
+  `feat/m02-m03-timing-mechanism`, `fix/r1-live-check`, `docs/r1-o1-kabul-kaydi`,
+  `chore/stage-0-1-snapshot`, `chore/branch-naming` …) `main`'e birleştirildi ve silindi.
+  Geçmişleri `main`'de ve kapanan PR'larda (#1–#12) durur.
+- `team-test/2026-11-22-checkpoint` → `main` olarak yeniden adlandırıldı.
 
 Daha önce klonladıysanız bir kez çalıştırın:
 
@@ -342,14 +357,16 @@ git fetch --prune origin
 git remote set-head origin -a
 ```
 
-Ardından yerel dallarınızı yeni adlarına taşıyın:
+Eski adlı yerel dallarınızda `main`'de olmayan bir iş yoksa silebilirsiniz
+(`git branch -d <eski-ad>`; Git, birleştirilmemiş bir dalı bu komutla silmez).
+Varsa o işi uygun sabit dala alın:
 
 ```powershell
-git branch -m <eski-ad> <yeni-ad>
+git switch feat
 ```
 
 ```powershell
-git branch -u origin/<yeni-ad> <yeni-ad>
+git merge <eski-ad>
 ```
 
 ## Sorun bildirme
