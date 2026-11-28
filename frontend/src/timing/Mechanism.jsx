@@ -11,7 +11,8 @@ const fieldLabel = {route_of_elimination:'Atılım yolu', metabolism:'Metabolizm
 const noteLabel = {negated_or_minor:'kayıt bu yolun olmadığını ya da çok küçük olduğunu söylüyor', uncertain_statement:'kayıt bunun bilinmediğini/belirsiz olduğunu söylüyor',
   condition_context:'yalnız hasta durumu bağlamı (ör. böbrek yetmezliğinde) — atılım yolu ifadesi değil',
   condition_also_mentioned:'cümlede ayrıca bir hasta durumu geçiyor',
-  metabolite_mentioned:'metabolit geçiyor; ifade ana ilaca ait olmayabilir', other_subject_possible:'cümlede başka bir ilaç/karşılaştırma geçiyor; bu ilaca ait olmayabilir',
+  metabolite_mentioned:'metabolit oluşumu/metabolit geçiyor (bilgi)',
+  metabolite_route:'bu yolla atılan bir metabolit; ana ilacın kendi yolu olmayabilir', other_subject_possible:'cümlede başka bir ilaç/karşılaştırma geçiyor; bu ilaca ait olmayabilir',
   other_drug_named:'cümlede başka bir ilaç adı geçiyor; ifade o ilaca ait olabilir', animal_study:'hayvan çalışması; insana uygulanmayabilir'};
 // DrugBank known_action: is this protein part of the drug's OWN pharmacological action?
 // It does not say whether the drug affects or uses the protein.
@@ -83,7 +84,8 @@ export function visibleExplanations(list) {
 // denied / uncertain / condition-only: not a clearing route as stated
 const FLAGGED = ['negated_or_minor', 'uncertain_statement', 'condition_context'];
 // the sentence may be about another drug, an animal or a metabolite: whose route it is, is unclear
-const ATTRIBUTION = ['other_drug_named', 'other_subject_possible', 'animal_study', 'metabolite_mentioned'];
+// metabolite_mentioned alone (the parent drug forms metabolites) is only information
+const ATTRIBUTION = ['other_drug_named', 'other_subject_possible', 'animal_study', 'metabolite_route'];
 export function organGroup(o) {
   if (o.notes.some(n => FLAGGED.includes(n))) return 'flagged';
   if (o.notes.some(n => ATTRIBUTION.includes(n))) return 'attribution';

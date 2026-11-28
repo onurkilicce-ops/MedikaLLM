@@ -25,7 +25,8 @@ Role = Literal["substrate", "inhibitor", "inducer", "other"]
 Organ = Literal["kidney", "liver", "bile_feces", "lungs"]
 SourceField = Literal["route_of_elimination", "metabolism", "clearance"]
 OrganNote = Literal["negated_or_minor", "uncertain_statement", "condition_context", "condition_also_mentioned",
-                    "metabolite_mentioned", "other_subject_possible", "other_drug_named", "animal_study"]
+                    "metabolite_mentioned", "metabolite_route", "other_subject_possible", "other_drug_named",
+                    "animal_study"]
 Mechanism = Literal["inhibition", "induction", "shared_substrate"]
 Effect = Literal[
     "victim_exposure_may_increase",      # enzyme inhibited -> victim builds up
