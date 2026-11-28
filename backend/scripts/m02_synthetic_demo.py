@@ -14,6 +14,20 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
+def set_food(engine, foods):
+    """Replace the food-interaction entries of already-seeded synthetic drug ids."""
+    from sqlalchemy import delete, select
+    from sqlalchemy.orm import Session
+    from src.db.sql_models import Drug, DrugFoodInteraction
+    with Session(engine) as s:
+        pks = dict(s.execute(select(Drug.drug_id, Drug.id).where(Drug.drug_id.in_(list(foods)))).all())
+        assert set(pks) == set(foods)
+        for drug_id, entries in foods.items():
+            s.execute(delete(DrugFoodInteraction).where(DrugFoodInteraction.drug_pk == pks[drug_id]))
+            s.add_all(DrugFoodInteraction(drug_pk=pks[drug_id], interaction=e) for e in entries)
+        s.commit()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--seed', action='store_true')
@@ -58,6 +72,14 @@ def main():
                             'enzymes': [(*cyp, 'yes', 'inhibitor', 'strong')]},
                 'DB00945': {'route': S + 'Mainly eliminated in bile.', 'enzymes': [(*cyp, 'yes', 'substrate')]},
             }, [('DB00006', 'DB00945', S + 'The metabolism of Uncertain agent can be decreased when combined with Ciprofloxacin.')])
+            # Food/situation table: SYNTHETIC food-interaction entries (DrugBank-style
+            # directive first, synthetic wording after it; not real records).
+            set_food(engine, {
+                'DB00006': ['Avoid multivalent ions. ' + S + 'Take at least 2 hours before or 6 hours after antacids.',
+                            'Take with or without food. ' + S + 'Food has no relevant effect in this fixture.'],
+                'DB00682': ['Take on an empty stomach. ' + S + 'Take 30-60 minutes before breakfast.'],
+                'DB00316': [], 'DB00945': [], 'DB01211': [],
+            })
         finally:
             engine.dispose()
         print('SYNTHETIC M02/M03 records seeded. These PK texts and identity mappings are not clinical data.')

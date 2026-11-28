@@ -2,13 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { timingRequest } from './client';
 import { mechanismRequest } from './mechanismClient';
-import { quantity, conditionText, httpError, safeUrl, fieldStatus, coverageStatus, num, adviceStatusText } from './format';
+import { quantity, conditionText, httpError, safeUrl, fieldStatus, num } from './format';
 import Timeline from './Timeline';
 import Mechanism from './Mechanism';
+import FoodTable from './FoodTable';
 import './timing.css';
-
-const foods = {breakfast:'Kahvaltı (aç karnına, öncesi)', dairy_alone:'Süt/yoğurt — öğün dışında tek başına',
-  calcium_drink_alone:'Kalsiyumla zenginleştirilmiş içecek — öğün dışında', dairy_in_meal:'Öğünün parçası olan süt ürünü'};
 
 function SourceLink({url, children}) {
   const safe = safeUrl(url);
@@ -56,12 +54,11 @@ export default function TimingPage() {
   const [access,setAccess] = useState('checking');
   const [accessError,setAccessError] = useState('');
   const [selected,setSelected] = useState([]);
-  const [contexts,setContexts] = useState({});
-  const [selectedFoods,setFoods] = useState([]);
   const [result,setResult] = useState(null);
-  const [advice,setAdvice] = useState(null);
+  const [table,setTable] = useState(null);
   const [error,setError] = useState('');
-  const [adviceError,setAdviceError] = useState('');
+  const [tableError,setTableError] = useState('');
+  const [tableBusy,setTableBusy] = useState(false);
   const [mechanism,setMechanism] = useState(null);
   const [mechanismError,setMechanismError] = useState('');
   const [mechanismBusy,setMechanismBusy] = useState(false);
@@ -97,7 +94,7 @@ export default function TimingPage() {
 
   function invalidate() {
     revision.current += 1; requestRef.current?.abort();
-    setResult(null); setAdvice(null); setError(''); setAdviceError(''); setMechanism(null); setMechanismError(''); setMechanismBusy(false); setBusy(false);
+    setResult(null); setTable(null); setError(''); setTableError(''); setTableBusy(false); setMechanism(null); setMechanismError(''); setMechanismBusy(false); setBusy(false);
   }
   function add(item) {
     if (selected.length >= 10 || selected.some(x => x.drug_id === item.drug_id)) return;
@@ -105,12 +102,20 @@ export default function TimingPage() {
   }
   function remove(id) {
     invalidate(); setSelected(selected.filter(x => x.drug_id !== id));
-    setContexts(Object.fromEntries(Object.entries(contexts).filter(([key]) => key !== id)));
   }
-  // M-03 alone for one drug: its organ/protein profile (M-02 needs two drugs)
+  function loadTable(drug_ids, controller, current) {
+    setTableBusy(true);
+    timingRequest('table', {drug_ids}, controller.signal).then(value => {
+      if (controller.signal.aborted || revision.current !== current) return;
+      if (value?.schema_version === 'm02-timing-table/1') setTable(value); else setTableError(httpError({}));
+    }, reason => { if (!controller.signal.aborted && revision.current === current) setTableError(httpError(reason)); })
+      .finally(() => { if (revision.current === current) setTableBusy(false); });
+  }
+  // one drug: its timing table and organ/protein profile (the M-02 comparison needs two drugs)
   function profileOnly() {
     invalidate(); const current = revision.current;
     const controller = new AbortController(); requestRef.current = controller; setMechanismBusy(true);
+    loadTable(selected.map(x => x.drug_id), controller, current);
     mechanismRequest(selected.map(x => x.drug_id), controller.signal).then(value => {
       if (controller.signal.aborted || revision.current !== current) return;
       if (value?.schema_version === 'm03-mechanism/1') setMechanism(value); else setMechanismError(httpError({}));
@@ -121,7 +126,7 @@ export default function TimingPage() {
     invalidate(); const current = revision.current;
     const controller = new AbortController(); requestRef.current = controller; setBusy(true);
     const drug_ids = selected.map(x => x.drug_id);
-    const body = {drug_ids, contexts:Object.entries(contexts).filter(([,v]) => v).map(([drug_id,profile_id]) => ({drug_id,profile_id})), foods:selectedFoods};
+    loadTable(drug_ids, controller, current);
     // M-03 is independent: it never delays or hides the M-02 results.
     setMechanismBusy(true);
     mechanismRequest(drug_ids, controller.signal).then(value => {
@@ -132,17 +137,14 @@ export default function TimingPage() {
       if (controller.signal.aborted || revision.current !== current) return;
       setMechanismError(httpError(reason));
     }).finally(() => { if (revision.current === current) setMechanismBusy(false); });
-    const [pk, intervals] = await Promise.allSettled([
-      timingRequest('compare', {drug_ids}, controller.signal), timingRequest('advice', body, controller.signal),
-    ]);
+    const [pk] = await Promise.allSettled([timingRequest('compare', {drug_ids}, controller.signal)]);
     if (controller.signal.aborted || revision.current !== current) return;
     if (pk.status === 'fulfilled') setResult(pk.value); else setError(httpError(pk.reason));
-    if (intervals.status === 'fulfilled') setAdvice(intervals.value); else setAdviceError(httpError(intervals.reason));
     setBusy(false);
   }
   return <main className="m02-page">
     <header className="m02-header"><div><p className="m02-eyebrow">MedicaLLM · M-02 / M-03</p><h1>İlaç zamanlaması ve mekanizma</h1>
-      <p>Kaynak metinleriyle süreleri karşılaştırın; uygun ürün koşullarında kaynaklı zamanlama önerilerini inceleyin; ilaçları hangi organların ve proteinlerin işlediğini ve ortak protein üzerinden etkileşimi görün.</p></div>
+      <p>İlaçları seçin: neyle ve ne zaman alınacağı tek tabloda; süreler, organlar ve proteinler altında.</p></div>
       <Link to="/chat">Panele dön</Link></header>
     <p className="m02-note">Sağlık profesyonelleri için karar desteği. Doz hesabı veya kişisel kullanım takvimi üretmez.</p>
     {access === 'checking' && <p role="status">Erişim kontrol ediliyor…</p>}
@@ -159,28 +161,18 @@ export default function TimingPage() {
             Ekle: {item.name} · {item.drug_id}</button></li>)}</ul>
         {limited && <p>İlk 20 sonuç gösteriliyor. Aramayı daraltın.</p>}
         <p>{selected.length}/10 ilaç seçildi. Karşılaştırma için en az 2 farklı ilaç gerekir.</p>
-        {selected.map(item => <div className="m02-selection" key={item.drug_id}>
-          <div><strong>{item.name}</strong> · {item.drug_id} <button onClick={()=>remove(item.drug_id)} aria-label={`${item.name} kaldır`}>Kaldır</button></div>
-          {item.profiles.length > 0 ? <label>Öneri için ürün koşulu — yalnız gerçekten eşleşiyorsa seçin
-            <select aria-label={`${item.name} ürün koşulu`} value={contexts[item.drug_id] || ''} onChange={e=>{invalidate();setContexts({...contexts,[item.drug_id]:e.target.value});}}>
-              <option value="">Bilinmiyor / eşleşmiyor</option>{item.profiles.map(p=><option key={p.profile_id} value={p.profile_id}>{p.label}</option>)}
-            </select></label> : <p>Bu ilaç için mevcut öneri kataloğunda ürün profili yok. Süreler yine karşılaştırılabilir.</p>}
-        </div>)}
-      </section>
-      <section className="m02-card"><h2>2. Zamanlama koşullarını belirtin</h2>
-        <p>Gıda seçmek, hastanın bunu tükettiğini kaydetmez. Bu sorgu hiçbir hasta veya ilaç kaydını değiştirmez.</p>
-        <fieldset><legend>Değerlendirilecek gıda/öğün</legend>{Object.entries(foods).map(([id,label]) => <label className="m02-checkbox" key={id}>
-          <input type="checkbox" checked={selectedFoods.includes(id)} onChange={e=>{invalidate();setFoods(e.target.checked?[...selectedFoods,id]:selectedFoods.filter(x=>x!==id));}} />{label}</label>)}</fieldset>
-        <p>Öneri kataloğu sınırlıdır: belirli UK/US ürün etiketlerini kapsar. Bunların Türkiye’deki ürünle eşdeğerliği varsayılmaz.
-          Ürün seçimi, kaynakta belirtilen uygulama yolu ve formülasyonu doğruladığınız anlamına gelir.</p>
+        <div className="m02-chips">{selected.map(item => <span className="m02-chip" key={item.drug_id}>
+          <strong>{item.name}</strong> · {item.drug_id} <button onClick={()=>remove(item.drug_id)} aria-label={`${item.name} kaldır`}>Kaldır</button></span>)}</div>
         <button className="m02-primary" disabled={selected.length<2 || busy} onClick={compare}>{busy?'Karşılaştırılıyor…':'Karşılaştır'}</button>
         {selected.length===1 && <button onClick={profileOnly} disabled={mechanismBusy}>Organ ve protein profilini göster (M-03)</button>}
+        {selected.length===1 && <p><small>Tek ilaç için de “neyle, ne zaman” tablosu ve organ/protein profili gösterilir.</small></p>}
         {busy && <p role="status">Veriler okunuyor…</p>}
         {error && <p role="alert">{error}</p>}
       </section>
+      {(table || tableError || tableBusy) && <FoodTable table={table} error={tableError} busy={tableBusy} />}
       {result && <>
         <Timeline drugs={result.drugs} />
-        <section className="m02-card"><h2>Değerler ve kaynaklar</h2>
+        <section className="m02-card"><details><summary><h2 className="m02-inline">Değerler ve kaynaklar</h2> (ayrıntı)</summary>
           {result.drugs.map(d => <section key={d.requested_id} className="m02-drug-card"><h3>{d.drug?.name || d.requested_id}</h3>
             {d.lookup_status === 'not_found' ? <p>İlaç kaydı bulunamadı; kontrol tamamlanamadı.</p> : <>
               <p>Tmax: {fieldStatus[d.data_status.tmax]} · Yarı ömür: {fieldStatus[d.data_status.half_life]}</p>
@@ -194,27 +186,8 @@ export default function TimingPage() {
             </>}
           </section>)}
           <p>Eksik değerler sıfır değildir. “Kayıt yok”, “güvenli” anlamına gelmez.</p>
-        </section>
+        </details></section>
       </>}
-      {(advice || adviceError) && <section className="m02-card"><h2>Kaynaklı zaman aralığı değerlendirmesi</h2>
-        <p>Bu bölüm, Tmax veya yarı ömürden hesaplanmaz. Zaman ayırmak bütün etkileşimleri çözmez; uzman değerlendirmesi gerekir.</p>
-        {adviceError && <p role="alert">Öneri kontrolü tamamlanmadı: {adviceError}</p>}
-        {advice && <><p>Durum: {adviceStatusText(advice)}.</p>
-          {advice.advice.length===0 && <p>Bu durumda kaynakla doğrulanmış zaman aralığı önerisi belirlenemedi. Bu, etkileşim olmadığı veya birlikte kullanılabileceği anlamına gelmez.</p>}
-          {advice.advice.map((a,i)=><article className="m02-measure" key={`${a.rule_id}-${i}`}>
-            <h3>{selected.find(x=>x.drug_id===a.subject_drug_id)?.name || a.subject_drug_id} → {foods[a.other_id] || a.other_name}</h3>
-            {/* The subject is named: the direction must not depend on selection order. */}
-            <p className="m02-interval" data-testid="advice-interval">Kaynağa göre <strong>{selected.find(x=>x.drug_id===a.subject_drug_id)?.name || a.subject_drug_id}</strong>,
-              {' '}«{foods[a.other_id] || a.other_name}» öğesinden <strong>{quantity(a.interval_hours)} {a.direction==='before'?'önce':'sonra'}</strong>.</p>
-            <ul>{a.conditions.map(c=><li key={c}>{c}</li>)}</ul>
-            <details><summary>Önerinin açık kaynağı</summary><blockquote>{a.source.excerpt}</blockquote>
-              <SourceLink url={a.source.url}>{a.source.title}</SourceLink><p>{a.source.section} · Etiket: {a.source.label_updated} · Açılarak kontrol: {a.source.checked_on}</p>
-              <p>Kaynak metni kontrol edildi. Uzman/klinik kabulü henüz yapılmadı.</p></details>
-          </article>)}
-          <details open><summary>Kapsam ve eksik kontroller</summary><ul>{advice.coverage.map((c,i)=><li key={i}>
-            {c.item_ids.map(id=>selected.find(x=>x.drug_id===id)?.name || foods[id] || id).join(' / ')}: <strong>{coverageStatus[c.status]}</strong><p>{c.reason}</p></li>)}</ul></details>
-        </>}
-      </section>}
       {mechanismBusy && !mechanism && !mechanismError && <p role="status">Organ ve protein verileri okunuyor…</p>}
       {(mechanism || mechanismError) && <Mechanism mechanism={mechanism} error={mechanismError} />}
     </>}

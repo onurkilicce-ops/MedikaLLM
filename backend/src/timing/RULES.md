@@ -858,6 +858,76 @@ Denetim:
 
 R2–R7 ve D1–D6 HTTP tarama setleri yeni alan dışında birebir aynı kaldı.
 
+## 8l. Besin/durum tablosu (`food.py`, `POST /api/timing/table`)
+
+Kullanıcı isteği: "Ürün/koşul doğrulaması gerekli" ve "Bu katalogda … bulunamadı" gibi
+bilgi vermeyen mesajlar yerine gerçek bilgi; satırlar besin/durum, sütunlar ilaçlar olan
+okunaklı bir tablo.
+
+- **Kaynak.** DrugBank `drug_food_interactions` kayıtları salt okunur okunur. Kayıtlar
+  kısa bir yönergeyle başlar ("Take with food.", "Avoid multivalent ions."); yerel veride
+  ~70 farklı yönerge kapalı bir kelime dağarcığıdır. Her biri açıkça bir satıra, türe
+  (`avoid/separate/limit/take_with/take_without/info`) ve Türkçe metne eşlenir
+  (`food._D`). Tanınmayan yönerge düşürülmez: `diet_other` satırında özgün cümleyle kalır.
+- **Süre yalnız talimat cümlesinden.** "Take …", "Separate …", "Allow …", "Wait …",
+  "Avoid … for", "should be taken/avoided" gibi cümleler okunur. Ölçüm (Cmax, AUC,
+  "delays", "absorption is reduced") ve kaçırılmış doz cümleleri süre değildir.
+- **Yön ilacın bakışından.** `before` = ilacı öğeden bu kadar önce al; `after` = öğeden bu
+  kadar sonra al. Süre ilaçtan sayılıyorsa ("after taking this medication", "before each
+  dose", "after X administration") veya öğe öznedir ("cations … 6 hours before or 2 hours
+  after drug X") yön çevrilir. "after taking antacids" öğeden sayılır.
+- **Eksik okuma yok.** Cümledeki tüm süreler okunamadıysa (ör. "yemek 2 saat, içmek 30
+  dakika") süre gösterilmez; cümle kaynakta kalır. Satırın öğesi geçmiyorsa ("before
+  bedtime" yemek satırında) süre yazılmaz.
+- **Biçim.** Olumlu talimatta "within/up to" → `≤` ("Take within 30 minutes after a meal"
+  → `≤30 dk sonra`). "at least", "more than", "no less than" → `≥`; 1 saatten kısa değer
+  "dk" ile. Aralıklar ve birim korunur (`0,5–2 sa önce`). Bilinmeyen değer 0 değildir.
+- **Yasak penceresi en az aralıktır.** "Do not / Avoid / should not … within / up to / for N
+  hours" bir alt sınırdır: `≥N` (asla `≤N`). Bu cümleler "Avoid food 2 hours before and 1 hour
+  after each dose" gibi açık `at least` içermese de `≥` gösterilir.
+- **Öğenin kendi kullanımı ilaç değildir.** "after taking the antacid", "after antacid use",
+  "before calcium supplement doses" öğeden sayılır; yön çevrilmez.
+- **"Separate … by N hours" yalnız kendi satırında.** Cümle başka bir satırın öğesinden söz
+  ediyorsa ("Separate administration from antacids" yemek satırında) süre yazılmaz. Süreden
+  sonra tek bir yön geliyorsa ("by 2 hours before administration") iki yönlü aralık
+  üretilmez; süre gösterilmez, cümle kaynakta kalır.
+- **Etiket kataloğu.** `advice.SOURCES` kuralları ürün seçimi istemeden, ürünü yazılarak
+  hücre olur (ör. "Ciproxin 250 mg/5 mL süspansiyon — Bayer (UK)"). Türkiye ürünüyle
+  eşdeğerlik varsayılmaz.
+- **Seçilen diğer ilaçlar.** Diğer seçili ilacın adından taşıdığı çok değerlikli iyon
+  (kalsiyum, demir, magnezyum, alüminyum/sukralfat, çinko, bizmut/lantan), antasit olup
+  olmadığı (ad veya DrugBank kategorisi) ve bağlayıcı olup olmadığı okunur. Kural şu
+  sırayla uygulanır:
+  1. kuralın adını verdiği iyonu taşıyan ilaç;
+  2. "multivalent/polyvalent/cations/mineral" genel kuralı, yalnız iyon taşıyan ilaca;
+  3. hiçbir iyon adı vermeyen genel "antacids" kuralı, antasite;
+  4. bağlayıcı kuralı, bağlayıcıya.
+  "antacids containing aluminum or magnesium" demir tuzuna veya kalsiyum karbonata
+  uygulanmaz. Yalnız sütten söz eden kural kalsiyum ilacına genişletilmez. Tek değerlikli
+  tuzlar (potasyum klorür, sodyum florür) iyon taşımaz; "Mineral Supplements" kategorisi tek
+  başına kanıt değildir. Parenteral/topikal ürünler (demir dekstran, ferrik karboksimaltoz,
+  edetat, çinko oksit, alüminyum klorür) ağızdan şelasyon kuralına girmez. Hücre diğer ilacı
+  ve dayandığı kuralı yazar: "X: ayrı alın (demir içerir; ağızdan birlikte alındığında).
+  Dayanak: «…»". Etiket çift kuralı (siprofloksasin + sukralfat) yalnız etiketin öznesi olan
+  ilacın sütununa yazılır, simetrik doldurulmaz.
+- **Tür ve metin aynı gücü söyler.** "Avoid …" yönergesi `avoid` ve "kaçının/birlikte
+  almayın" olur; `separate` yalnız açık "ayrı alın" yönergesidir.
+- **Kayıt yok ≠ besin kaydı yok.** Bulunamayan ilaç "İlaç kaydı bulunamadı" ile ayrıca
+  bildirilir ve sütunu "kayıt yok" gösterir. `has_food_entries` yalnız DrugBank kayıtlarını
+  sayar; başlık "(DrugBank besin kaydı yok)" der, etiket hücresi yine görünebilir.
+- **Boş hücre** "kayıtta bilgi yok" demektir, "güvenli" değildir.
+
+Yerel gerçek veride (28 Kasım 2026) 2.512 kaydın hepsi bir satıra eşlendi; 117 farklı
+talimat cümlesinden süre okundu. Bu yerel bir sayımdır, doğruluk oranı değildir.
+
+Bağımsız çok ajanlı inceleme (28 Kasım 2026): 20 bulgudan 17'si iki ayrı doğrulayıcıca yeniden
+üretildi ve yukarıdaki kurallarla düzeltildi; 3'ü reddedildi. Kayıtlı gerçek talimat cümleleri
+yeniden işlendiğinde 9 çıktı değişti: 8'inde eksik `≥` eklendi, tek yönlü bir "by … before"
+cümlesinde uydurma iki yönlü aralık kaldırıldı. Hiçbirinde yön değişmedi.
+
+Denetim: `tests/unit/test_m02_food_table.py` (sentetik yeniden yazımlar),
+`tests/integration/test_m02_table_http_pg.py`, `frontend/e2e/timing.flow.jsx`.
+
 ## 10. ≈5 × yarılanma ömrü
 
 Her `half_life` ölçümü için ayrı bir `derived` nesnesi. `computed` için hepsi:

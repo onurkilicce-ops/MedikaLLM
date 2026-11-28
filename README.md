@@ -129,16 +129,26 @@ CI (`.github/workflows/ci.yml`): her PR'da backend için `uv lock --check`, `uv 
 ## M-02 ekranı: seçim, çizelge ve kaynaklı zamanlama
 
 Hekim hesabıyla giriş yaptıktan sonra paneldeki **M-02 · Zamanlama**
-bağlantısını veya `/timing` yolunu açın. 2–10 farklı ilaç seçin. Tmax, yarı ömür
-ve uygun değerlerde yaklaşık 5× süre aynı saat ekseninde, koşulları ayrı satırlarda
-gösterilir. Eksik/inceleme gereken değer çizilmez; metni ve gerekçesi kartta kalır.
-Çizelge kişisel konsantrasyon eğrisi veya güvenli ilaç alma takvimi değildir.
+bağlantısını veya `/timing` yolunu açın. 1–10 farklı ilaç seçin (karşılaştırma için 2).
 
-Zaman aralığı önerileri ayrı `/api/timing/advice` çağrısıyla, yalnız seçilen ürün
-profili ve açık kaynak eşleşince gösterilir. Profil seçilmemesi, katalogda kural
-olmaması ve teknik hata ayrıdır. Kaynak kapsamı [SOURCES.md](backend/src/timing/SOURCES.md),
-alan sözleşmeleri [API.md](backend/src/timing/API.md)'dedir. Kadir'in ajanı/C1 ve
-Halil'in hasta ekranı bu akışın ön koşulu değildir.
+**"Ne zaman, neyle alınır?" tablosu (ilk sonuç).** Satırlar besin/durumlardır (yemek,
+süt ürünleri ve kalsiyum, antasit/demir/mineraller, seçilen diğer ilaçlar, greyfurt,
+alkol, kafein, bitkisel ürünler, su, diğer diyet, kullanım düzeni); sütunlar seçilen
+ilaçlardır. Hücrede kısa Türkçe talimat ve varsa yönlü süre bulunur (ör. "≥1 sa önce
+veya ≥2 sa sonra" = ilacı yemekten en az 1 saat önce veya 2 saat sonra alın). "kaynak"
+özgün cümleyi açar. Kaynaklar: DrugBank besin etkileşimi kayıtları (salt okunur) ve
+elle doğrulanmış küçük etiket kataloğu; etiket hücresi ürününü yazar (ör. UK ürünü),
+Türkiye ürünüyle eşdeğerlik varsayılmaz. Süre yalnız talimat cümlesinden okunur;
+ölçüm cümleleri (Cmax/AUC) ve okunamayan çok süreli cümleler süre olarak gösterilmez.
+"—" kayıtta bilgi yok demektir, "güvenli" değildir. Uç `POST /api/timing/table`.
+
+Tmax, yarı ömür ve uygun değerlerde yaklaşık 5× süre tablonun altında aynı saat
+ekseninde gösterilir; ayrıntılı değerler ve kaynaklar açılabilir bölümdedir. Eksik/
+inceleme gereken değer çizilmez. Çizelge kişisel konsantrasyon eğrisi veya güvenli
+ilaç alma takvimi değildir. Eski ürün profili tabanlı `/api/timing/advice` ucu
+geriye uyumluluk için duruyor; ekran artık onu kullanmıyor. Kaynak kapsamı
+[SOURCES.md](backend/src/timing/SOURCES.md), alan sözleşmeleri
+[API.md](backend/src/timing/API.md)'dedir.
 
 **M-03 (aynı ekran): organlar, enzimler ve taşıyıcılar.** Karşılaştırmadan sonra
 ekranın altında "Organlar, enzimler ve taşıyıcılar (M-03)" bölümü dolar. M-02
