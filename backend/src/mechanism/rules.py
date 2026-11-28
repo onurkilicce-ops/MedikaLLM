@@ -131,10 +131,66 @@ _METABOLITE = re.compile(r"\b(?:metabolites?|glucuronides?|glucuronidated|conjug
 # The sentence may be about another product ('Unlike drug X, which is renally excreted').
 _OTHER_SUBJECT = re.compile(
     r"\b(?:unlike\b|in contrast to|as with|like other|other (?:drugs?|agents?|compounds?)"
-    r"|(?:in|of|from)\s+(?:the\s+)?(?:rats?|mice|dogs?|monkeys?|rabbits?|animals?|animal studies|preclinical studies)"
     r"|(?:co-?administ\w*|combined) with|(?:given|taken) (?:together )?with (?!food|meals?|a meal|water|milk|or without))"
     r"|\b(?:drug|compound|agent)\s+(?:[a-z]|[a-z]?\d{1,4}[a-z]?)\b(?!\s*(?:h|hr|hrs|hours?|min|minutes?|days?|weeks?"
     r"|mg|g|mcg|ml|%|percent))|\bdrug[a-z]\b", re.I)
+_ANIMAL = re.compile(r"\b(?:in|of|from)\s+(?:the\s+)?(?:rats?|mice|dogs?|monkeys?|rabbits?|animals?|animal studies"
+                     r"|preclinical studies|non-?human primates)\b", re.I)
+# hedged wording: the record does not state the route as fact ('may be excreted', 'unverified')
+_HEDGE = re.compile(r"\b(?:may|might|could|possibly|possible|probably|probable|presumably|presumed|(?<!un)likely"
+                    r"|thought to|believed to|suggest\w*|appears? to be|seems? to|expected to|assumed"
+                    r"|not (?:been )?(?:confirmed|verified|proven)|unconfirmed|unverified|unproven|putative"
+                    r"|hypothe\w*|speculat\w*|reportedly|tentative\w*)\b", re.I)
+# names that are DrugBank entries but in elimination text are body substances, not another drug
+GENERIC_SUBSTANCES = {
+    "water", "urea", "oxygen", "glucose", "sodium", "potassium", "calcium", "magnesium", "albumin", "creatinine",
+    "bile", "iron", "alcohol", "ethanol", "nitrogen", "carbon dioxide", "hydrogen", "chloride", "bicarbonate",
+    "phosphate", "phosphorus", "zinc", "copper", "protein", "fat", "air", "lactose", "sucrose", "fructose",
+    "uric acid", "bilirubin", "cholesterol", "carbon", "salt", "acid", "base", "sulfate", "sulphate", "glycine",
+    "taurine", "glutathione", "cysteine", "acetate", "lactate", "citrate", "oxalate", "ammonia", "caffeine",
+}
+_NAME_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9'-]*")
+MAX_NAME_CANDIDATES = 4000
+
+
+def name_candidates(text: str) -> List[str]:
+    """Lower-cased 1-4 word sequences that could be a drug name (looked up
+    against DrugBank names and synonyms by the repository)."""
+    words = [w.lower() for w in _NAME_TOKEN.findall(text or "")]
+    out: List[str] = []
+    seen: Set[str] = set()
+    for i in range(len(words)):
+        for n in range(1, 5):
+            if i + n > len(words):
+                break
+            cand = " ".join(words[i:i + n])
+            if len(cand) < 4 or cand in seen or cand in GENERIC_SUBSTANCES:
+                continue
+            seen.add(cand)
+            out.append(cand)
+            if len(out) >= MAX_NAME_CANDIDATES:
+                return out
+    return out
+
+
+def _named_drugs(sentence: str, names: Sequence[str]) -> List[str]:
+    """Other drugs' names (lower-case) that occur as whole words in the sentence,
+    as written in the sentence; a name inside a longer matched name is dropped."""
+    found: List[Tuple[int, int, str]] = []
+    low = sentence.lower()
+    for name in names:
+        for m in re.finditer(rf"(?<![\w-]){re.escape(name)}(?![\w-])", low):
+            found.append((m.start(), m.end(), sentence[m.start():m.end()]))
+    found.sort(key=lambda t: (t[0], -(t[1] - t[0])))
+    out, last_end = [], -1
+    for a, b, text in found:
+        if a >= last_end:
+            if text not in out:
+                out.append(text)
+            last_end = b
+    return out
+
+
 # segment breaks; parentheses and subordinate clauses are their own segments
 _SEGMENT_BREAK = re.compile(r",|\(|\)|\band\b|\bwhile\b|\bwhereas\b|\bbut\b|\bwith\b|\bwithout\b|\bsince\b"
                             r"|\brather than\b|\binstead of\b|\bas opposed to\b|\bin place of\b"
@@ -220,6 +276,7 @@ class Mention:
     quote_truncated: bool = False
     cut_before: bool = False
     cut_after: bool = False
+    other_drugs: Tuple[str, ...] = ()
 
 
 def _is_route(sentence: str, segs, seg_text, i: int, hit_start: int, has_verb: bool) -> bool:
@@ -250,8 +307,13 @@ def _qualifier_after(sentence: str, segs, i: int, hit_end: int) -> str:
     return ""
 
 
-def organ_mentions(source_field: str, text: str) -> Tuple[List[Mention], bool]:
-    """(mentions in text order, truncated?). See the module docstring."""
+def organ_mentions(source_field: str, text: str, other_drug_names: Sequence[str] = ()) -> Tuple[List[Mention], bool]:
+    """(mentions in text order, truncated?). See the module docstring.
+
+    ``other_drug_names``: lower-cased DrugBank names/synonyms of OTHER drugs that
+    occur in this text (found by the repository). A sentence naming one of them
+    may describe that drug, so its organ mentions are flagged ``other_drug_named``."""
+    other_drug_names = [n for n in other_drug_names if n and n not in GENERIC_SUBSTANCES]
     out: List[Mention] = []
     text = text or ""
     for s, e in _sentences(text):
@@ -261,6 +323,8 @@ def organ_mentions(source_field: str, text: str) -> Tuple[List[Mention], bool]:
         starts = [a for a, _ in segs]
         seg_text = [sentence[a:b] for a, b in segs]
         other_subject = bool(_OTHER_SUBJECT.search(sentence))
+        animal = bool(_ANIMAL.search(sentence))
+        named = _named_drugs(sentence, other_drug_names)
         has_verb = bool(_VERBISH.search(sentence))
         for organ, rx in _ORGAN_RE.items():
             hits = [h for h in rx.finditer(sentence) if not _PREFIXED.search(sentence[max(0, h.start() - 7):h.start()])]
@@ -315,7 +379,11 @@ def organ_mentions(source_field: str, text: str) -> Tuple[List[Mention], bool]:
                                 or _MINOR_SHARE.search(qual) or _MINOR_WORD.fullmatch(qual.strip()))
 
                 def uncertain(i):
-                    if _UNCERTAIN.search(seg_text[i]):
+                    if _UNCERTAIN.search(seg_text[i]) or _HEDGE.search(seg_text[i]):
+                        return True
+                    # a hedge earlier in the same clause: 'The drug may be extensively metabolized by the liver'
+                    clause = re.split(r";|\bbut\b|\bwhereas\b|\bwhile\b", sentence[:segs[i][0]], flags=re.I)[-1]
+                    if _HEDGE.search(clause):
                         return True
                     # 'It is not known whether it is excreted in urine'
                     return i > 0 and bool(re.search(r"\bwhether\s*$", sentence[:segs[i][0]], re.I)) and bool(
@@ -330,11 +398,15 @@ def organ_mentions(source_field: str, text: str) -> Tuple[List[Mention], bool]:
                 notes.append("metabolite_mentioned")
             if other_subject:
                 notes.append("other_subject_possible")
+            if named:
+                notes.append("other_drug_named")
+            if animal:
+                notes.append("animal_study")
             # a long sentence is quoted as a window that contains the organ word
             q0 = 0 if len(full) <= MAX_QUOTE_CHARS else max(0, min((first_hit or 0) - 300, len(full) - MAX_QUOTE_CHARS))
             quote = full[q0:q0 + MAX_QUOTE_CHARS]
             out.append(Mention(organ, source_field, quote, s + q0, s + q0 + len(quote), tuple(notes),
-                               len(full) > MAX_QUOTE_CHARS, q0 > 0, q0 + len(quote) < len(full)))
+                               len(full) > MAX_QUOTE_CHARS, q0 > 0, q0 + len(quote) < len(full), tuple(named)))
             if len(out) >= MAX_MENTIONS_PER_FIELD:
                 return out, True
     return out, False
@@ -499,7 +571,8 @@ def explain_pair(a: str, b: str, rows_a: Sequence[ProteinRow], rows_b: Sequence[
                     if perp_row.kind != victim_row.kind:
                         caveats.append("listed_under_different_protein_kinds")
                     caveats.append("other_pathways_may_compensate")
-                    key = (mechanism, perp_id, victim_id, (pp.label or pv.label or "").lower())
+                    ident = (pp.protein_id or pv.protein_id or "").upper() or (pp.label or pv.label or "").lower()
+                    key = (mechanism, perp_id, victim_id, ident)
                     if key in done:
                         continue  # the same protein matched twice (id group and name-only group)
                     done.add(key)
@@ -530,10 +603,17 @@ def explain_pair(a: str, b: str, rows_a: Sequence[ProteinRow], rows_b: Sequence[
                 explained_a.add(ia)
             elif pa.label and (ia, pa.label) not in undirected:
                 undirected.append((ia, pa.label))
+    # one entry per protein (group), not per name: two BE ids with the same name both stay,
+    # labelled with their id so they can be told apart
+    kept = [(ia, label) for ia, label in dict.fromkeys(undirected) if ia not in explained_a]
+    counts: Dict[str, int] = {}
+    for _, label in kept:
+        counts[label] = counts.get(label, 0) + 1
     names = []
-    for ia, label in undirected:
-        if ia not in explained_a and label not in names:
-            names.append(label)
+    for ia, label in kept:
+        shown = f"{label} ({ga[ia].protein_id})" if counts[label] > 1 and ga[ia].protein_id else label
+        if shown not in names:
+            names.append(shown)
     # strongest evidence first: directional before the rest, enzymes first
     explained.sort(key=lambda x: (not x.directional, x.mechanism == "shared_substrate", x.kind != "enzyme",
                                   (x.protein_name or "").lower(), x.perpetrator or ""))

@@ -110,6 +110,23 @@ describe('M03 mechanism section', () => {
       shared_proteins_without_direction:[], recorded_interactions:[]}])} />);
     expect(screen.getByTestId('m03-explanation').textContent).toContain('aynı kan/plazma bağlanma proteinine');
   });
+  it('Astra: separates clear routes, attribution-uncertain and denied organs, and names the other drug', () => {
+    const o = (organ, notes, extra = {}) => ({organ, source_field:'route_of_elimination', quote:T+organ+' sentence.', quote_start:0,
+      quote_end:10, notes, quote_cut_before:false, quote_cut_after:false, other_drugs:[], ...extra});
+    const drugs = [drug('DB00001','Victim', {organs:[
+      o('liver', []), o('kidney', ['other_drug_named'], {other_drugs:['Ritonavir']}), o('lungs', ['animal_study']),
+      o('bile_feces', ['negated_or_minor', 'other_drug_named'], {other_drugs:['Zorvex']})],
+      texts:[{source_field:'route_of_elimination', stored_text:T+'x'}]})];
+    render(<Mechanism mechanism={body([], drugs)} />);
+    const route = screen.getByTestId('m03-organs-route').textContent;
+    const attribution = screen.getByTestId('m03-organs-attribution').textContent;
+    const flagged = screen.getByTestId('m03-organs-flagged').textContent;
+    expect(route).toContain('Karaciğer'); expect(route).not.toContain('Böbrek');
+    expect(attribution).toContain('Böbrek'); expect(attribution).toContain('geçen ilaç: Ritonavir');
+    expect(attribution).toContain('Akciğer'); expect(attribution).toContain('hayvan çalışması');
+    expect(flagged).toContain('Safra / dışkı');
+    expect(screen.getByText(/Aidiyeti belirsiz ifadeler/)).toBeTruthy();
+  });
   it('shows a technical error instead of an empty result', () => {
     render(<Mechanism mechanism={null} error="Veritabanına ulaşılamadı." />);
     expect(screen.getByRole('alert').textContent).toContain('Mekanizma kontrolü tamamlanmadı');

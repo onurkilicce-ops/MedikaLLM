@@ -218,3 +218,16 @@ def test_503_on_a_query_error_mid_read(client, monkeypatch):
 
     monkeypatch.setattr(repository, "_begin_read_only", begin_then_fail)
     _assert_clean_503(client.post(URL, json={"drug_ids": [A, B]}, headers=_auth()))
+
+
+def test_astra_another_drug_named_in_the_record_is_recognised_from_drugbank_names(synthetic_pg, synthetic_app):
+    """The other drug's name comes from the drugs table itself (here a synthetic record
+    renamed 'Zorvatinib'); the record's own name is never 'another drug'."""
+    set_mechanism(synthetic_pg, {
+        A: {"name": "Quellamide", "route": T + "Zorvatinib is mainly excreted in urine. Quellamide is eliminated in feces."},
+        C: {"name": "Zorvatinib"},
+    })
+    body = _post(synthetic_app, [A])
+    organs = {o["organ"]: o for o in body["drugs"][0]["organs"]}
+    assert "other_drug_named" in organs["kidney"]["notes"] and organs["kidney"]["other_drugs"] == ["Zorvatinib"]
+    assert organs["bile_feces"]["notes"] == [] and organs["bile_feces"]["other_drugs"] == []

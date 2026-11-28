@@ -112,7 +112,11 @@ Notlar:
     yok.
   - Organın olumlu bir bölümü varsa not düşmez: `Renal clearance is negligible, but 80% …
     in urine`.
-- `uncertain_statement`: kayıt bunun bilinmediğini söylüyor.
+- `uncertain_statement`: kayıt bunu bilinmiyor ya da kesin değil olarak anlatıyor.
+  - Çekinceli anlatım da sayılır: `may/might/could`, `possibly`, `probably`, `likely`,
+    `thought to`, `believed to`, `suggested`, `not confirmed`, `unverified`, `putative` …
+    Çekince organın kendi bölümünde ya da aynı yan cümlenin başında aranır. `unlikely`
+    çekince değil, olumsuzluktur.
   - Örnekler: `It is not known whether it is excreted in urine`, `Little is known about
     hepatic metabolism`, `No data are available on biliary excretion`, `has not been
     (fully) characterized/evaluated/established`, `is not well understood`.
@@ -133,11 +137,18 @@ Notlar:
   `patients with normal renal function` durum sayılmaz.
 - `metabolite_mentioned`: cümlede metabolit, glukuronid, konjugat veya sülfat geçiyor;
   ifade ana ilaca ait olmayabilir. İlaç adındaki `hydroxy-` sayılmaz.
+- `other_drug_named`: cümlede **başka bir ilacın adı** geçiyor; ifade o ilaca ait
+  olabilir.
+  - Adlar DrugBank'in kendisinden bulunur: metindeki 1–4 sözcüklük diziler `drugs.name`
+    ve `drug_synonyms` ile tam (küçük harf) karşılaştırılır.
+  - Kaydın kendi adı ve eş adları "başka ilaç" sayılmaz. Vücut maddeleri de sayılmaz
+    (`urea`, `water`, `glucose`, `albumin` …).
+  - Bulunan ad yanıtta `other_drugs` olarak gelir (metindeki yazılışıyla).
+- `animal_study`: hayvan çalışması (`In rats, …`, `in animal studies`); ifade insana
+  uygulanmayabilir.
 - `other_subject_possible`: cümlede karşılaştırma ya da başka ürün geçiyor.
   - İşaretlenenler: `unlike`, `in contrast to`, `as opposed to`, `co-administered with`,
     `combined with`, `given with` (yemek/su değilse), `drug x` …
-  - Hayvan çalışmaları da işaretlenir (`In rats, …`, `in animal studies`); ifade insana
-    uygulanmayabilir.
   - İşaretlenmeyenler: `with food`, `compared with young subjects`, `similar to that in
     young subjects`.
   - İşaretliyse ifade bu ilaca ait olmayabilir.
@@ -168,6 +179,8 @@ Notlar:
   Hangi proteinin kastedildiği bilinemez. Ad yine de `shared_proteins_without_direction`
   içinde gösterilir; "ortak protein yok" denmez.
 - **Tek açıklama.** Aynı etken, kurban, protein ve mekanizma için tek açıklama verilir.
+  Protein **kimliğe** (BE) göre ayırt edilir. Aynı adlı ama farklı kimlikli iki protein
+  ayrı ayrı açıklanır. Yönsüz listede adın yanına kimlik yazılır (`X (BE1)`, `X (BE2)`).
 - **Güç seçimi.** `unknown` yazan güç "belirtilmiş" sayılmaz; aynı rolün `strong` gibi
   açık bir gücü varsa o seçilir.
 - **Ortak substratın türü.** Çiftin sırasından bağımsızdır (taşıyıcı > enzim > plazma
@@ -240,8 +253,13 @@ Ekranın diğer kuralları:
   bağlanma proteinine bağlanır" denir.
 - **known_action.** "ilacın kendi etki mekanizmasının parçası mı" olarak açıklanır.
   `no` değeri "proteini etkilemez" anlamına gelmez.
-- **Organ listesi.** Olumsuz, belirsiz ya da yalnız hasta durumu olarak geçen organlar
-  temizleyen organlardan ayrı bir alt listede gösterilir.
+- **Organ listesi.** Üç ayrı liste vardır:
+  1. **Temizleyen organlar:** işaretsiz ifadeler.
+  2. **Aidiyeti belirsiz ifadeler:** `other_drug_named`, `other_subject_possible`,
+     `animal_study`, `metabolite_mentioned`. Açıklamasıyla ve geçen ilacın adıyla gösterilir;
+     seçilen ilacın yolu sayılmaz.
+  3. **Olumsuz, belirsiz ya da yalnız hasta durumu:** `negated_or_minor`,
+     `uncertain_statement`, `condition_context`.
 - **Tek ilaç.** Tek ilaç seçiliyken "Organ ve protein profilini göster (M-03)" düğmesi
   yalnız M-03'ü çağırır.
 
@@ -251,9 +269,10 @@ onunla birleştirmez.
 
 ## 4. Bilinen sınırlar
 
-- **Ad tanıma yok.** Organ cümlesinde başka bir ilaç anılıyorsa yalnız karşılaştırma ve
-  kodlu ürün kalıpları işaretlenir (`other_subject_possible`). Kodsuz gerçek bir ilaç adı
-  (`Ritonavir is renally excreted`) tanınmaz. Okuyucu birebir cümleyi görür.
+- **Ad tanıma DrugBank adlarıyla sınırlı.** Organ cümlesindeki başka ilaç, yalnız
+  DrugBank'te adı ya da eş adı olarak kayıtlıysa (tam yazılışla) tanınır. Kısaltma, marka
+  yazım farkı ya da yalnız zamirle anlatılan başka ilaç (`the parent compound`)
+  tanınmayabilir. Okuyucu birebir cümleyi görür.
 - **Pay yok.** Organ payları (yüzde) yapılandırılmaz; alıntıdan okunur.
 - **Kapsam kayıttakiyle sınırlı.** Protein listesi DrugBank'in kaydettikleriyle
   sınırlıdır. Eksik kayıt, ilacın o proteini kullanmadığı anlamına gelmez.

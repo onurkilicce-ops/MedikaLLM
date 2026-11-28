@@ -121,6 +121,20 @@ Git'e ya da bu rapora girmedi.
 6. **Gerçek veriyle ölçüm yapılmadı.** Gerçek DrugBank metinlerinde organ ifadelerinin
    doğruluk oranı bilinmiyor.
 
+## 5a. Astra inceleme bulgularının düzeltmesi (28 Kasım 2026)
+
+| Bulgu | Düzeltme |
+|---|---|
+| Başka ilacın organı seçilen ilaca bağlanabiliyordu | Cümledeki adlar DrugBank adları ve eş adlarıyla karşılaştırılır. Başka bir ilaç geçiyorsa `other_drug_named` notu ve `other_drugs` (ad) döner. Kaydın kendi adları ve vücut maddeleri hariçtir |
+| Başka ilaç / hayvan / metabolit bağlamı ana organ listesinde kalıyordu | Ekran üç liste gösterir: temizleyen organlar, **aidiyeti belirsiz ifadeler** (açıklama ve geçen ilaç adıyla), olumsuz/belirsiz/yalnız durum. Hayvan çalışmasının ayrı notu var: `animal_study` |
+| "Atılabilir", "doğrulanmamış" belirsizlik almıyordu | `may/might/could`, `possibly`, `likely`, `thought to`, `not confirmed`, `unverified`, `putative` … artık `uncertain_statement` |
+| Aynı adlı, farklı kimlikli iki protein birinden düşüyordu | Tekrar kontrolü BE kimliğine dayanır; ikisi de açıklanır. Yönsüz listede `Ad (BE…)` olarak ayrılır |
+
+Testler:
+- `test_m03_rules.py`: "Astra review" bölümü.
+- `test_m03_mechanism_api_pg.py`: `test_astra_*`, adlar PostgreSQL'deki `drugs` tablosundan bulunur.
+- `Mechanism.test.jsx`: "Astra: …".
+
 ## 6. Astra için kontrol listesi
 
 1. `git log --oneline 85ad173..origin/feat/onur/m03-mechanism`.

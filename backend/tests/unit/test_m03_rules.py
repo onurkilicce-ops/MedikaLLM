@@ -389,7 +389,7 @@ def test_round4_not_routes(text):
     ("Renal clearance in elderly subjects was similar to that in young subjects.", "other_subject_possible", False),
     ("In patients with normal renal function, 90% is excreted in urine.", "condition_also_mentioned", False),
     ("Hydroxyurea is excreted in urine.", "metabolite_mentioned", False),
-    ("In rats, 90% of the dose was excreted in feces.", "other_subject_possible", True),
+    ("In rats, 90% of the dose was excreted in feces.", "animal_study", True),
 ])
 def test_round4_flags(text, note, present):
     organ = "bile_feces" if "feces" in text else "kidney"
@@ -455,3 +455,47 @@ def test_round5_denials_never_reach_the_clearing_list(text, organ):
 ])
 def test_round5_the_affirmed_organ_stays_clean(text, organ):
     assert notes_of(text, organ) == ()
+
+
+# ------------------------------------------- Astra review (attribution, hedging, ids) --
+def test_astra_a_sentence_naming_another_drug_is_flagged_with_that_name():
+    text = S + "Ritonavir is mainly excreted in urine. The drug itself is eliminated in feces."
+    ms, _ = R.organ_mentions("route_of_elimination", text, ["ritonavir"])
+    kidney = [m for m in ms if m.organ == "kidney"][0]
+    feces = [m for m in ms if m.organ == "bile_feces"][0]
+    assert "other_drug_named" in kidney.notes and kidney.other_drugs == ("Ritonavir",)
+    assert "other_drug_named" not in feces.notes and feces.other_drugs == ()
+
+
+def test_astra_name_matching_is_whole_word_and_generic_substances_are_ignored():
+    ms, _ = R.organ_mentions("route_of_elimination", S + "Excreted in urine as urea and water.", ["urea", "water", "ure"])
+    assert ms[0].notes == () and ms[0].other_drugs == ()
+    assert "urea" not in R.name_candidates("Excreted as urea") and "excreted" in R.name_candidates("Excreted as urea")
+
+
+@pytest.mark.parametrize("text,organ", [
+    ("It may be excreted in urine.", "kidney"),
+    ("The drug is possibly eliminated via bile.", "bile_feces"),
+    ("Renal excretion has not been confirmed.", "kidney"),
+    ("Hepatic metabolism is unverified.", "liver"),
+    ("The drug is thought to be metabolized in the liver.", "liver"),
+    ("Biliary excretion is likely.", "bile_feces"),
+])
+def test_astra_hedged_routes_are_uncertain(text, organ):
+    got = notes_of(text, organ)
+    assert "uncertain_statement" in got and "negated_or_minor" not in got
+
+
+def test_astra_unlikely_is_still_a_denial_not_a_hedge():
+    assert "negated_or_minor" in notes_of("Biliary excretion is unlikely.", "bile_feces")
+
+
+def test_astra_same_name_different_ids_are_both_kept():
+    a = [row(("enzyme", "BE1", "Cytochrome P450 2C"), "inhibitor", inh="strong"),
+         row(("enzyme", "BE2", "Cytochrome P450 2C"), "inhibitor", inh="strong")]
+    b = [row(("enzyme", "BE1", "Cytochrome P450 2C"), "substrate"), row(("enzyme", "BE2", "Cytochrome P450 2C"), "substrate")]
+    ex, _ = R.explain_pair("DBA", "DBB", a, b)
+    assert sorted(x.protein_id for x in ex) == ["BE1", "BE2"]
+    ex, und = R.explain_pair("DBA", "DBB", [row(("enzyme", "BE1", "X"), "binder"), row(("enzyme", "BE2", "X"), "binder")],
+                             [row(("enzyme", "BE1", "X"), "binder"), row(("enzyme", "BE2", "X"), "binder")])
+    assert ex == [] and und == ["X (BE1)", "X (BE2)"]

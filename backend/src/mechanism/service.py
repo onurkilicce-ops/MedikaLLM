@@ -20,6 +20,10 @@ def _text(value: str) -> str:
 
 def compare(drug_ids: Sequence[str]) -> MechanismResponse:
     by_id, proteins, recorded = repository.read_mechanism_data(drug_ids)
+    # Which other drugs does each record's elimination text name? (DrugBank names/synonyms)
+    texts_by_id = {d: " ".join(_text(getattr(r, f))[:MAX_STORED_CHARS] for f in _FIELDS) for d, r in by_id.items()}
+    candidates = sorted({c for t in texts_by_id.values() for c in rules.name_candidates(t)})
+    known = repository.find_drug_names(candidates) if candidates else {}
     drugs: List[DrugMechanism] = []
     for requested in drug_ids:
         row = by_id.get(requested)
@@ -40,12 +44,14 @@ def compare(drug_ids: Sequence[str]) -> MechanismResponse:
             texts.append(DrugText(source_field=field, stored_text=value[:MAX_STORED_CHARS],
                                   truncated=len(value) > MAX_STORED_CHARS))
             # parse the same bounded text that is shown, so every quote offset lies inside it
-            mentions, cut = rules.organ_mentions(field, value[:MAX_STORED_CHARS])
+            # a name shared with this record (its own name/synonym) is not another drug
+            others = sorted(n for n, ids in known.items() if ids - {row.drug_id} and row.drug_id not in ids)
+            mentions, cut = rules.organ_mentions(field, value[:MAX_STORED_CHARS], others)
             organs_truncated = organs_truncated or cut
             organs += [OrganMention(organ=m.organ, source_field=field, quote=m.quote, quote_start=m.start,
                                     quote_end=m.end, notes=list(m.notes),
                                     quote_truncated=m.quote_truncated, quote_cut_before=m.cut_before,
-                                    quote_cut_after=m.cut_after)
+                                    quote_cut_after=m.cut_after, other_drugs=list(m.other_drugs))
                        for m in mentions]
         drugs.append(DrugMechanism(requested_id=requested, lookup_status="found",
                                    drug=DrugInfo(drug_id=row.drug_id, name=row.name), proteins=entries,
