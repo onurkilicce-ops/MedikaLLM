@@ -529,6 +529,43 @@ ve sonuç yok. Token yok/geçersiz/silinmiş kullanıcı 401; doktor profili yok
 girdi/uyuşmayan profil 422; hız sınırı 429. SQL/adres/traceback yanıta yazılmaz.
 Kaynak ve ürün eşleştirme sınırları [SOURCES.md](SOURCES.md)'dedir.
 
+Not: ekran artık `advice` yerine aşağıdaki `table` ucunu kullanır; `advice`
+sözleşmesi değişmedi ve geriye uyumluluk için durur.
+
+### `POST /api/timing/table`
+
+"Ne zaman, neyle alınır?" tablosu. Satırlar besin/durumlar, sütunlar seçilen
+ilaçlar. Ürün profili istemez; etiket kataloğundaki kural hücrede **ürünüyle
+birlikte** gösterilir (`product`).
+
+```json
+{"drug_ids": ["DB00006", "DB00316"]}
+```
+
+| Girdi | Kural |
+|---|---|
+| `drug_ids` | 1–10 farklı `DB` + 5 rakam kimlik; sıra korunur. Ek alan 422. |
+
+Yanıt (`table.py`, OpenAPI): `schema_version="m02-timing-table/1"`, `notice`,
+`drugs[]` (`requested_id`, `drug_id|null`, `name|null`, `found`, `has_food_entries`),
+`rows[]` (`row_id`, `label`, `cells: {requested_id: Cell[]}`). Yalnız en az bir
+hücresi olan satır döner; satır sırası `food.ROWS`'tur (`meal`, `dairy_calcium`,
+`minerals_antacids`, `selected_drugs`, `grapefruit`, `alcohol`, `caffeine`, `herbal`,
+`water`, `diet_other`, `routine`). Bir ilacın anahtarı yoksa o satırda kaydında
+ifade yoktur — "güvenli" anlamına gelmez.
+
+`Cell`: `kind` (`avoid|separate|limit|take_with|take_without|info`), `text`
+(Türkçe talimat), `timing_text` (`""` = süre yok), `before`/`after`
+(`{low_hours, high_hours|null, at_least, at_most}` veya `null`), `source`
+(`drugbank|label`), `source_text` (tüm DrugBank kaydı veya etiket alıntısı),
+`timing_quote` (sürenin okunduğu özgün cümle), `source_ref`, `source_url`,
+`product`, `with_drug_id` (`selected_drugs` satırında diğer ilaç).
+
+Yön HER ZAMAN sütundaki ilaç içindir: `before` = ilacı öğeden bu kadar önce al,
+`after` = öğeden bu kadar sonra al. "after taking this medication" gibi ilaçtan
+sayılan cümlelerde yön çevrilir (RULES 8l). Durum kodları: 401/403/422/429 diğer
+uçlarla aynı; veri okunamazsa 503 ve sonuç yok. İstek salt okunurdur; LLM yok.
+
 ### Tüketici için ayrıştırıcı 9 notu
 
 D3: açıklama araya girse, ilaç parantez/yan cümlede veya konu başlığında olsa,

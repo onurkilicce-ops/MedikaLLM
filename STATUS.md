@@ -14,6 +14,40 @@ bağımsız olarak yeniden doğrulanmadı.
 
 ## Tur 1 — Güncel ilerleme kaydı (başlangıç 2026-11-24)
 
+### M-02 besin/durum tablosu — 28 Kasım 2026 (Claude; uzman değerlendirmesi bekliyor)
+
+**Kullanıcı isteği:** "Ürün/koşul doğrulaması gerekli" ve "Bu katalogda kaynaklı zaman aralığı
+bulunamadı" mesajları bilgi vermiyor. Gerçek bilgi gösterilsin; satırlarda besin/durumlar,
+sütunlarda seçilen ilaçlar olan bir tablo olsun.
+
+**Yapılanlar:**
+- Yeni uç `POST /api/timing/table` (`m02-timing-table/1`, 1–10 ilaç). DrugBank besin
+  etkileşimi kayıtlarını salt okunur okur ve elle doğrulanmış etiket kataloğunu ekler.
+- Kurallar `food.py`'de (RULES 8l): süre yalnız talimat cümlesinden alınır; yön ilacın
+  bakışından verilir; okunamayan çok süreli cümlede süre gösterilmez.
+- Ekran:
+  - ürün açılır menüleri, gıda kutuları ve öneri bölümü kaldırıldı;
+  - ilk sonuç tablo;
+  - çizelge ve "Değerler ve kaynaklar" (açılabilir) altında;
+  - M-03 aynı ekranda.
+- `/api/timing/advice` değişmedi, ekran kullanmıyor.
+
+**Doğrulama (bu çalıştırma):**
+- Backend katı paket: 1815 geçti (sentetik PG).
+- Yeni testler:
+  - 46 birim testi (`test_m02_food_table.py`);
+  - 9 HTTP/PG testi.
+- Frontend: 83 birim/bileşen testi.
+- E2E (React DOM → HTTP → sentetik PG): 8 test.
+- Gerçek yerel DrugBank (salt okunur): 2.512 kaydın hepsi bir satıra eşlendi, 117 talimat
+  cümlesinden süre okundu.
+
+**Sınırlar:**
+- Etiket kataloğu yine küçük (siprofloksasin, levotiroksin, siprofloksasin + sukralfat).
+- İki ilaç arası genel saat aralığı yalnız mineral/antasit taşıyan ilaçlar ve katalog
+  çifti için gösteriliyor.
+- Süreler kişisel doz takvimi değildir; klinik doğrulama yapılmadı.
+
 ### M-03 ilk sürüm — 28 Kasım 2026 (Claude; Astra kontrolü bekliyor)
 
 **Kullanıcı kararları (2026-11-27):**

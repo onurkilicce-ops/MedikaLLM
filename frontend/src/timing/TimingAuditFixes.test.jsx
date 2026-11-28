@@ -34,17 +34,26 @@ beforeEach(() => { timingRequest.mockReset(); });
 afterEach(cleanup);
 
 describe('audit fixes', () => {
-  it('N2: names the subject drug, independent of selection order', async () => {
+  it('N2: a pair cell names the other drug and sits in the subject drug column, independent of order', async () => {
+    const table = { schema_version: 'm02-timing-table/1', notice: '',
+      drugs: [{ requested_id: 'DB00316', drug_id: 'DB00316', name: '[SYNTHETIC] Sucralfate', found: true, has_food_entries: true },
+              { requested_id: 'DB00006', drug_id: 'DB00006', name: '[SYNTHETIC] Ciprofloxacin', found: true, has_food_entries: true }],
+      rows: [{ row_id: 'selected_drugs', label: 'Seçilen diğer ilaçlarla', cells: { DB00006: [{ kind: 'separate',
+        text: '[SYNTHETIC] Sucralfate: ayrı alın', timing_text: '1–2 sa önce veya ≥4 sa sonra', before: null, after: null,
+        source: 'label', source_text: 'synthetic excerpt', timing_quote: 'synthetic excerpt', source_ref: 'emc:4346:4.5',
+        source_url: 'https://www.medicines.org.uk/emc/product/4346/smpc', product: 'Synthetic product (UK)', with_drug_id: 'DB00316' }] } }] };
     timingRequest.mockImplementation(async path => path === 'compare'
       ? { drugs: [empty('DB00316', '[SYNTHETIC] Sucralfate'), empty('DB00006', '[SYNTHETIC] Ciprofloxacin')] }
-      : path === 'advice' ? advice : { items: search, limited: false });
+      : path === 'table' ? table : { items: search, limited: false });
     mount(); await selectSucralfateFirst();
     fireEvent.click(screen.getByRole('button', { name: 'Karşılaştır' }));
-    const line = await screen.findByTestId('advice-interval');
-    expect(line.textContent).toContain('[SYNTHETIC] Ciprofloxacin');
-    expect(line.textContent).toContain('«[SYNTHETIC] Sucralfate» öğesinden');
-    expect(line.textContent).toContain('1–2 sa önce');
-    expect(line.textContent).not.toContain('İlk ilaç');
+    const t = await screen.findByTestId('food-table');
+    const tds = t.querySelectorAll('tbody tr')[0].querySelectorAll('td');
+    expect(tds[0].textContent).toBe('—');                       // Sucralfate column
+    expect(tds[1].textContent).toContain('[SYNTHETIC] Sucralfate: ayrı alın');   // Ciprofloxacin column
+    expect(tds[1].textContent).toContain('1–2 sa önce veya ≥4 sa sonra');
+    expect(tds[1].textContent).toContain('Etiket: Synthetic product (UK)');
+    expect(t.textContent).not.toContain('İlk ilaç');
   });
 
   it('N6: a missing drug record is not reported as missing conditions', () => {

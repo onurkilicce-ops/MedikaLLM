@@ -26,7 +26,12 @@ async function add(name){
 async function compare(){
   fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
   await screen.findByText('Değerler ve kaynaklar',{}, {timeout:15000});
-  await screen.findByText('Kaynaklı zaman aralığı değerlendirmesi');
+  return screen.findByTestId('food-table-section',{}, {timeout:15000});
+}
+// the cells of one table row, by drug column (0-based)
+function rowCells(rowId){
+  const tr=screen.getByTestId('food-table').querySelector(`tr[data-row="${rowId}"]`);
+  return tr?[...tr.querySelectorAll('td')].map(td=>td.textContent):null;
 }
 beforeEach(()=>localStorage.clear());
 afterEach(cleanup);
@@ -39,12 +44,19 @@ describe('M02 live synthetic flow',()=>{
     expect(screen.getByText('Hesaplanan ≈5×: 20–30 sa')).toBeTruthy();
     fireEvent.click(screen.getAllByText('Kaynak metni ve referanslar')[1]);
     expect(screen.getAllByText('[SYNTHETIC] The half-life is 4-6 hours.[A900001]').length).toBeGreaterThan(0);
-    expect(screen.getByText(/Ürün\/koşul doğrulaması gerekli/)).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('[SYNTHETIC] Ciprofloxacin ürün koşulu'),{target:{value:'cipro_uk_tablet'}});
-    fireEvent.change(screen.getByLabelText('[SYNTHETIC] Sucralfate ürün koşulu'),{target:{value:'sucralfate_oral'}});
-    await compare();
-    expect(screen.getByText('1–2 sa önce')).toBeTruthy();expect(screen.getByText('≥4 sa sonra')).toBeTruthy();
-    expect(screen.getAllByRole('link',{name:/Ciprofloxacin 500 mg film-coated/})[0].href).toContain('/4346/smpc');
+    // one table from PG: no product choice needed, no dead-end messages
+    expect(screen.queryByText(/Ürün\/koşul doğrulaması gerekli/)).toBeNull();
+    expect(screen.queryByText(/Bu katalogda kaynaklı zaman aralığı bulunamadı/)).toBeNull();
+    const ions=rowCells('minerals_antacids');
+    expect(ions[0]).toContain('≥2 sa önce veya ≥6 sa sonra');expect(ions[1]).toBe('—');
+    const dairy=rowCells('dairy_calcium');
+    expect(dairy[0]).toContain('1–2 sa önce veya ≥4 sa sonra');expect(dairy[0]).toContain('Ciproxin 250 mg/5 mL');
+    const pair=rowCells('selected_drugs');
+    expect(pair[0]).toContain('[SYNTHETIC] Sucralfate (mineral/antasit içerir)');
+    expect(pair[0]).toContain('[SYNTHETIC] Sucralfate: ayrı alın');expect(pair[1]).toBe('—');
+    const sel=screen.getByTestId('food-table').querySelector('tr[data-row="selected_drugs"]');
+    const buttons=[...sel.querySelectorAll('button')];fireEvent.click(buttons[buttons.length-1]);
+    expect([...sel.querySelectorAll('a')].some(a=>a.href.includes('/4346/smpc'))).toBe(true);
     fireEvent.click(screen.getByRole('button',{name:'[SYNTHETIC] Sucralfate kaldır'}));
     expect(screen.queryByText('Değerler ve kaynaklar')).toBeNull();
     expect(screen.getByRole('button',{name:'Karşılaştır'}).disabled).toBe(true);
@@ -74,26 +86,22 @@ describe('M02 live synthetic flow',()=>{
     expect(screen.queryAllByTestId('timeline-row')).toHaveLength(0);
     expect(screen.getByText('İnceleme: subject_unresolved')).toBeTruthy();
     expect(screen.getByText(/Tmax: Veri yok · Yarı ömür: Veri yok/)).toBeTruthy();
-    expect(screen.getByText(/Bu katalogda kaynaklı zaman aralığı bulunamadı/)).toBeTruthy();
+    expect(screen.getByText(/kayıtlarında besin veya zamanlama bilgisi yok/)).toBeTruthy();
   });
-  it('shows sourced food timing only for the matching formulation and meal context',async()=>{
-    await login();mount();await add('Ciprofloxacin');await add('Empty agent');
-    fireEvent.change(screen.getByLabelText('[SYNTHETIC] Ciprofloxacin ürün koşulu'),{target:{value:'ciproxin_uk_suspension'}});
-    fireEvent.click(screen.getByLabelText('Süt/yoğurt — öğün dışında tek başına'));
-    await compare();
-    expect(screen.getByText('1–2 sa önce')).toBeTruthy();expect(screen.getByText('≥4 sa sonra')).toBeTruthy();
-    expect(screen.getAllByRole('link',{name:/Ciproxin 250 mg\/5 mL/})[0].href).toContain('/885/smpc');
-    fireEvent.click(screen.getByLabelText('Süt/yoğurt — öğün dışında tek başına'));
-    fireEvent.click(screen.getByLabelText('Öğünün parçası olan süt ürünü'));await compare();
-    expect(screen.queryByText('1–2 sa önce')).toBeNull();
-    expect(screen.getByText(/Bu koşula uygulanmıyor/)).toBeTruthy();
+  it('shows the checked label cell with its product and its source link',async()=>{
+    await login();mount();await add('Ciprofloxacin');await add('Empty agent');await compare();
+    const dairy=rowCells('dairy_calcium');
+    expect(dairy[0]).toContain('1–2 sa önce veya ≥4 sa sonra');expect(dairy[1]).toBe('—');
+    const tr=screen.getByTestId('food-table').querySelector('tr[data-row="dairy_calcium"]');
+    fireEvent.click(tr.querySelector('button'));
+    expect([...tr.querySelectorAll('a')].some(a=>a.href.includes('/885/smpc'))).toBe(true);
+    expect(screen.getByText(/besin kaydı yok/)).toBeTruthy();
   });
   it('does not invent the reverse breakfast interval',async()=>{
-    await login();mount();await add('Levothyroxine');await add('Empty agent');
-    fireEvent.change(screen.getByLabelText('[SYNTHETIC] Levothyroxine ürün koşulu'),{target:{value:'levothyroxine_us_tablet'}});
-    fireEvent.click(screen.getByLabelText('Kahvaltı (aç karnına, öncesi)'));await compare();
-    expect(screen.getByText('0,5–1 sa önce')).toBeTruthy();
-    expect(screen.queryByText(/sa sonra$/)).toBeNull();
+    await login();mount();await add('Levothyroxine');await add('Empty agent');await compare();
+    const meal=rowCells('meal');
+    expect(meal[0]).toContain('0,5–1 sa önce');
+    expect(meal[0]).not.toContain('sa sonra');expect(meal[1]).toBe('—');
   });
   it('rejects a real patient token at the professional screen',async()=>{
     await login('patient2');mount();

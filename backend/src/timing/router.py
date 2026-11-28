@@ -18,7 +18,7 @@ from ..auth.service import verify_token
 from ..middleware.rate_limiter import SEARCH_LIMIT, limiter, user_key
 from . import repository, service
 from .models import TimingCompareRequest, TimingCompareResponse
-from . import advice
+from . import advice, table
 from .advice_models import AdviceRequest, AdviceResponse, SearchItem, SearchResponse
 
 logger = getLogger(__name__)
@@ -93,6 +93,22 @@ def search_timing_drugs(request: Request, q: str = Query(min_length=2, max_lengt
         rows = repository.search_drugs(q.strip())
         return SearchResponse(items=[SearchItem(drug_id=r.drug_id, name=r.name,
                               profiles=advice.profiles_for(r.name)) for r in rows[:20]], limited=len(rows) > 20)
+    except repository.TimingDataUnavailable:
+        raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
+
+
+@router.post("/table", response_model=table.TableResponse, responses=_ERROR_RESPONSES)
+@limiter.limit(SEARCH_LIMIT, key_func=user_key)
+def timing_table(request: Request, body: table.TableRequest,
+                 _user_id: str = Depends(require_professional)) -> table.TableResponse:
+    """One table for 1-10 drugs: rows are foods and situations (meal, dairy/calcium,
+    antacids/minerals, the other selected drugs, grapefruit, alcohol, caffeine, herbal,
+    water, other diet), columns are the drugs. Each cell is a Turkish instruction with
+    the time it states (from the drug's point of view) and its source sentence:
+    DrugBank's food-interaction entry, or a checked product label with the product
+    named. No cell = no statement in the record, never 'safe'. Read-only; no LLM."""
+    try:
+        return table.build(body.drug_ids)
     except repository.TimingDataUnavailable:
         raise HTTPException(status_code=503, detail=UNAVAILABLE_DETAIL)
 

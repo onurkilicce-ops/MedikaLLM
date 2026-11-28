@@ -858,6 +858,45 @@ Denetim:
 
 R2–R7 ve D1–D6 HTTP tarama setleri yeni alan dışında birebir aynı kaldı.
 
+## 8l. Besin/durum tablosu (`food.py`, `POST /api/timing/table`)
+
+Kullanıcı isteği: "Ürün/koşul doğrulaması gerekli" ve "Bu katalogda … bulunamadı" gibi
+bilgi vermeyen mesajlar yerine gerçek bilgi; satırlar besin/durum, sütunlar ilaçlar olan
+okunaklı bir tablo.
+
+- **Kaynak.** DrugBank `drug_food_interactions` kayıtları salt okunur okunur. Kayıtlar
+  kısa bir yönergeyle başlar ("Take with food.", "Avoid multivalent ions."); yerel veride
+  ~70 farklı yönerge kapalı bir kelime dağarcığıdır. Her biri açıkça bir satıra, türe
+  (`avoid/separate/limit/take_with/take_without/info`) ve Türkçe metne eşlenir
+  (`food._D`). Tanınmayan yönerge düşürülmez: `diet_other` satırında özgün cümleyle kalır.
+- **Süre yalnız talimat cümlesinden.** "Take …", "Separate …", "Allow …", "Wait …",
+  "Avoid … for", "should be taken/avoided" gibi cümleler okunur. Ölçüm (Cmax, AUC,
+  "delays", "absorption is reduced") ve kaçırılmış doz cümleleri süre değildir.
+- **Yön ilacın bakışından.** `before` = ilacı öğeden bu kadar önce al; `after` = öğeden bu
+  kadar sonra al. Süre ilaçtan sayılıyorsa ("after taking this medication", "before each
+  dose", "after X administration") veya öğe öznedir ("cations … 6 hours before or 2 hours
+  after drug X") yön çevrilir. "after taking antacids" öğeden sayılır.
+- **Eksik okuma yok.** Cümledeki tüm süreler okunamadıysa (ör. "yemek 2 saat, içmek 30
+  dakika") süre gösterilmez; cümle kaynakta kalır. Satırın öğesi geçmiyorsa ("before
+  bedtime" yemek satırında) süre yazılmaz.
+- **Biçim.** "within/up to" → `≤`, "at least" → `≥`; 1 saatten kısa değer "dk" ile.
+  Aralıklar ve birim korunur (`0,5–2 sa önce`). Bilinmeyen değer 0 değildir.
+- **Etiket kataloğu.** `advice.SOURCES` kuralları ürün seçimi istemeden, ürünü yazılarak
+  hücre olur (ör. "Ciproxin 250 mg/5 mL süspansiyon — Bayer (UK)"). Türkiye ürünüyle
+  eşdeğerlik varsayılmaz.
+- **Seçilen diğer ilaçlar.** Başka bir seçili ilaç adı/kategorisiyle mineral/antasit veya
+  kalsiyum taşıyorsa bu ilacın genel mineral kuralı o ilaca karşı da gösterilir. Önce
+  çok değerlikli iyon/antasit/mineral kuralı, sonra kalsiyum; başka tek bir iyon
+  (ör. demir) kuralı alüminyumlu ilaca uygulanmaz. Etiket çift kuralı (siprofloksasin +
+  sukralfat) yalnız etiketin öznesi olan ilacın sütununa yazılır, simetrik doldurulmaz.
+- **Boş hücre** "kayıtta bilgi yok" demektir, "güvenli" değildir.
+
+Yerel gerçek veride (28 Kasım 2026) 2.512 kaydın hepsi bir satıra eşlendi; 117 farklı
+talimat cümlesinden süre okundu. Bu yerel bir sayımdır, doğruluk oranı değildir.
+
+Denetim: `tests/unit/test_m02_food_table.py` (sentetik yeniden yazımlar),
+`tests/integration/test_m02_table_http_pg.py`, `frontend/e2e/timing.flow.jsx`.
+
 ## 10. ≈5 × yarılanma ömrü
 
 Her `half_life` ölçümü için ayrı bir `derived` nesnesi. `computed` için hepsi:

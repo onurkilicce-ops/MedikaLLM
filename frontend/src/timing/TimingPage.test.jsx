@@ -27,7 +27,14 @@ const other={...drug,requested_id:'DB00002',drug:{name:'[SYNTHETIC] Drug B'},mea
   data_status:{half_life:'unparsed_needs_review',tmax:'empty'},fields:[{source_field:'half_life',stored_text:'[SYNTHETIC] Other drug uncertain.',
     review_items:[{reason:'subject_unresolved',quote:'[SYNTHETIC] Other drug uncertain.',quote_start:0,quote_end:35}]}]};
 const search=[{drug_id:'DB00001',name:'[SYNTHETIC] Drug A',profiles:[]},{drug_id:'DB00002',name:'[SYNTHETIC] Drug B',profiles:[]}];
-const noAdvice={status:'evaluated',advice:[],coverage:[{item_ids:['DB00001','DB00002'],status:'not_in_catalog',reason:'No matching catalog rule.'}]};
+const cell=(o)=>({kind:'separate',text:'Antasitlerden ayrı alın',timing_text:'≥2 sa önce veya ≥2 sa sonra',before:null,after:null,
+  source:'drugbank',source_text:'[SYNTHETIC] Take separate from antacids. Take at least 2 hours before or after antacids.',
+  timing_quote:'[SYNTHETIC] Take at least 2 hours before or after antacids.',source_ref:'',source_url:'',product:'',with_drug_id:'',...o});
+const tableBody={schema_version:'m02-timing-table/1',notice:'[SYNTHETIC] notice',
+  drugs:[{requested_id:'DB00001',drug_id:'DB00001',name:'[SYNTHETIC] Drug A',found:true,has_food_entries:true},
+         {requested_id:'DB00002',drug_id:'DB00002',name:'[SYNTHETIC] Drug B',found:true,has_food_entries:false}],
+  rows:[{row_id:'minerals_antacids',label:'Antasit, demir, mineraller ve bağlayıcılar',cells:{DB00001:[cell({})]}},
+        {row_id:'meal',label:'Yemek (aç / tok)',cells:{DB00001:[cell({kind:'take_without',text:'Aç karnına alın',timing_text:'0,5–1 sa önce'})]}}]};
 function mount(){return render(<MemoryRouter><TimingPage /></MemoryRouter>);}
 async function selectTwo(){
   await screen.findByLabelText(/İlaç adı/);
@@ -37,7 +44,7 @@ async function selectTwo(){
   fireEvent.click(await screen.findByRole('button',{name:/Ekle:.*Drug B/}));
 }
 beforeEach(()=>{timingRequest.mockReset();timingRequest.mockImplementation(async path=>path==='compare'?{drugs:[drug,other]}:
-  path==='advice'?noAdvice:{items:search,limited:false});});
+  path==='table'?tableBody:{items:search,limited:false});});
 afterEach(cleanup);
 
 describe('M02 complete screen',()=>{
@@ -49,7 +56,7 @@ describe('M02 complete screen',()=>{
     expect(screen.getAllByTestId('timeline-row')).toHaveLength(2);
     expect(screen.getAllByText(/Tmax: Veri yok/)).toHaveLength(2);
     expect(screen.getByText('İnceleme: subject_unresolved')).toBeTruthy();
-    expect(screen.getByText(/kaynakla doğrulanmış zaman aralığı önerisi belirlenemedi/)).toBeTruthy();
+    expect(screen.getByTestId('food-table')).toBeTruthy();
     fireEvent.click(screen.getByText('Kaynak metni ve referanslar'));
     expect(screen.getByText(source.quote)).toBeTruthy();
     expect(screen.getByText(/bu değere özgü kaynak olarak kabul edilmedi/)).toBeTruthy();
@@ -63,18 +70,18 @@ describe('M02 complete screen',()=>{
     expect(await screen.findByRole('alert')).toBeTruthy();
     expect(screen.queryByRole('button',{name:'Karşılaştır'})).toBeNull();
   });
-  it('does not present a failed advice lookup as no evidence',async()=>{
+  it('does not present a failed table request as no information',async()=>{
     timingRequest.mockImplementation(async path=>{
-      if(path==='advice')throw Object.assign(new Error(),{status:503});
+      if(path==='table')throw Object.assign(new Error(),{status:503});
       return path==='compare'?{drugs:[drug,other]}:{items:search,limited:false};
     });mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
-    expect(await screen.findByText(/Öneri kontrolü tamamlanmadı:/)).toBeTruthy();
-    expect(screen.queryByText(/kaynakla doğrulanmış zaman aralığı önerisi belirlenemedi/)).toBeNull();
-    expect(screen.getByText('Değerler ve kaynaklar')).toBeTruthy();
+    expect(await screen.findByText(/Zamanlama tablosu okunamadı:/)).toBeTruthy();
+    expect(screen.queryByText(/besin veya zamanlama bilgisi yok/)).toBeNull();
+    expect(await screen.findByText('Değerler ve kaynaklar')).toBeTruthy();
   });
   it('discards a late response after selection changes',async()=>{
     let resolve;
-    timingRequest.mockImplementation(path=>path==='compare'?new Promise(r=>{resolve=r;}):Promise.resolve(path==='advice'?noAdvice:{items:search,limited:false}));
+    timingRequest.mockImplementation(path=>path==='compare'?new Promise(r=>{resolve=r;}):Promise.resolve(path==='table'?tableBody:{items:search,limited:false}));
     mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
     await screen.findByText('Veriler okunuyor…');
     fireEvent.click(screen.getByRole('button',{name:'[SYNTHETIC] Drug A kaldır'}));
@@ -92,26 +99,31 @@ describe('M02 complete screen',()=>{
     await screen.findByRole('alert');
     expect(screen.queryByText('Arama sonucu yok.')).toBeNull();
   });
-  it('keeps a failed PK request separate from the independent advice result',async()=>{
+  it('keeps a failed PK request separate from the independent timing table',async()=>{
     timingRequest.mockImplementation(async path=>{
       if(path==='compare')throw Object.assign(new Error(),{status:503});
-      return path==='advice'?noAdvice:{items:search,limited:false};
+      return path==='table'?tableBody:{items:search,limited:false};
     });mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
     await screen.findByRole('alert');
     expect(screen.queryByText('Değerler ve kaynaklar')).toBeNull();
     expect(screen.queryAllByTestId('timeline-row')).toHaveLength(0);
-    expect(screen.getByText('Kaynaklı zaman aralığı değerlendirmesi')).toBeTruthy();
+    expect(await screen.findByTestId('food-table')).toBeTruthy();
   });
-  it('shows directional advice with its source and unchanged interval range',async()=>{
-    timingRequest.mockImplementation(async path=>path==='advice'?{status:'evaluated',coverage:[],advice:[
-      {rule_id:'synthetic',subject_drug_id:'DB00001',other_id:'DB00002',other_name:'Drug B',direction:'before',
-       interval_hours:{kind:'range',lower:1,upper:2},conditions:['Synthetic condition'],source:{title:'Synthetic label',url:'https://example.org',excerpt:'[SYNTHETIC] Before statement.',section:'Test',label_updated:'2026-01-01',checked_on:'2026-11-26'}},
-      {rule_id:'synthetic',subject_drug_id:'DB00001',other_id:'DB00002',other_name:'Drug B',direction:'after',
-       interval_hours:{kind:'lower_bound',lower:4,inclusive:true},conditions:['Synthetic condition'],source:{title:'Synthetic label',url:'https://example.org',excerpt:'[SYNTHETIC] After statement.',section:'Test'}}
-    ]}:path==='compare'?{drugs:[drug,other]}:{items:search,limited:false});
+  it('shows one table: rows are foods/situations, columns are drugs, times in bold, source on demand',async()=>{
     mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
-    expect(await screen.findByText('1–2 sa önce')).toBeTruthy();expect(screen.getByText('≥4 sa sonra')).toBeTruthy();
-    expect(screen.getByText('[SYNTHETIC] Before statement.')).toBeTruthy();
+    const t=await screen.findByTestId('food-table');
+    const heads=[...t.querySelectorAll('thead th')].map(x=>x.textContent);
+    expect(heads[1]).toContain('[SYNTHETIC] Drug A'); expect(heads[2]).toContain('besin kaydı yok');
+    const rows=[...t.querySelectorAll('tbody tr')].map(r=>r.querySelector('th').textContent);
+    expect(rows).toEqual(['Antasit, demir, mineraller ve bağlayıcılar','Yemek (aç / tok)']);
+    expect(screen.getByText('≥2 sa önce veya ≥2 sa sonra')).toBeTruthy();
+    expect(screen.getByText('0,5–1 sa önce')).toBeTruthy();
+    expect(t.querySelectorAll('tbody tr')[0].querySelectorAll('td')[1].textContent).toBe('—');
+    expect(screen.queryByText(/Take at least 2 hours before or after antacids/)).toBeNull();
+    fireEvent.click(screen.getAllByRole('button',{name:'kaynak'})[0]);
+    expect(screen.getByText(/Take at least 2 hours before or after antacids/)).toBeTruthy();
+    expect(screen.queryByText(/ürün\/koşul doğrulaması gerekli/)).toBeNull();
+    expect(screen.queryByRole('combobox',{name:/ürün koşulu/})).toBeNull();
   });
 });
 
@@ -134,7 +146,7 @@ describe('M03 on the M-02 screen',()=>{
     mechanismRequest.mockImplementationOnce(()=>new Promise(()=>{}));
     mount();await selectTwo();fireEvent.click(screen.getByRole('button',{name:'Karşılaştır'}));
     expect(await screen.findByText('Değerler ve kaynaklar')).toBeTruthy();
-    expect(screen.getByText('Kaynaklı zaman aralığı değerlendirmesi')).toBeTruthy();
+    expect(await screen.findByTestId('food-table')).toBeTruthy();
     expect(screen.getByText('Organ ve protein verileri okunuyor…')).toBeTruthy();
     expect(screen.getByRole('button',{name:'Karşılaştır'}).disabled).toBe(false);
   });
@@ -152,6 +164,8 @@ describe('M03 on the M-02 screen',()=>{
     fireEvent.click(screen.getByRole('button',{name:'Organ ve protein profilini göster (M-03)'}));
     await waitFor(()=>expect(mechanismRequest).toHaveBeenCalledWith(['DB00001'], expect.anything()));
     expect(await screen.findByTestId('m03-mechanism')).toBeTruthy();
+    expect(timingRequest).toHaveBeenCalledWith('table', {drug_ids:['DB00001']}, expect.anything());
+    expect(await screen.findByTestId('food-table')).toBeTruthy();
     expect(screen.queryByText('Değerler ve kaynaklar')).toBeNull();
   });
 });
