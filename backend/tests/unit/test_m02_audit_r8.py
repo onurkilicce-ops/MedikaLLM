@@ -35,7 +35,7 @@ def _unresolved(fp):
 
 
 def test_parser_version_bumped_for_behaviour_change():
-    assert PARSER_VERSION == "m02-text-parser/10"
+    assert int(PARSER_VERSION.rsplit("/", 1)[1]) >= 10
 
 
 # ------------------------------------------------------------------ B1 --

@@ -41,3 +41,18 @@ def test_n5_control_characters_are_rejected_before_the_database(synthetic_pg, sy
     for q in ("ci\x00pro", "ci\x07pro"):
         r = synthetic_app.get("/api/timing/drugs", params={"q": q}, headers=_auth())
         assert r.status_code == 422
+
+
+def test_r11_subscript_and_enantiomers_http(synthetic_pg, synthetic_app):
+    """Stored text with T<sub>1/2</sub> and one value per enantiomer: two separate,
+    clean measurements (R and S), each with its own approx. 5x, never one merged value."""
+    _set(synthetic_pg, {A: ("[SYNTHETIC] Warfarin", "",
+                            T + "R-warfarin T<sub>1/2</sub>=37-89 hours. S-warfarin T<sub>1/2</sub>=21-43 hours.")})
+    res = _post(synthetic_app, [A, B])
+    ms = res[A]["measurements"]
+    got = [((m["hours"]["lower"], m["hours"]["upper"]), m["conditions"]["stereoisomer"], m["review_required"]) for m in ms]
+    assert got == [((37.0, 89.0), ["R-warfarin"], False), ((21.0, 43.0), ["S-warfarin"], False)]
+    assert [d["status"] for d in res[A]["derived"]] == ["computed", "computed"]
+    field = next(f for f in res[A]["fields"] if f["source_field"] == "half_life")
+    assert "<sub>" not in field["stored_text"] and "T1/2" in field["stored_text"]
+    assert res[A]["data_status"]["half_life"] == "parsed"

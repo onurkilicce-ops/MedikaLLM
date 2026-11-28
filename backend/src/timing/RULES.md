@@ -1,4 +1,4 @@
-# M-02 metin ayrıştırma kuralları (`m02-text-parser/10`)
+# M-02 metin ayrıştırma kuralları (`m02-text-parser/11`)
 
 Bu belge `parser.py`'nin **nesnel** kurallarıdır. Güven yüzdesi yoktur; her
 değer ya kurala uyup yapılandırılır ya da metni korunarak incelemeye bırakılır.
@@ -822,6 +822,41 @@ gerçek veri kapsam incelemesinde ayrıca ölçülmelidir.
 
 Denetim: `test_m02_audit_r8.py` (B1 için 23 olumsuz ve 15 olumlu çekişmeli örnek
 dahil) ve `test_m02_audit_r8_http_pg.py`, gerçek PG üzerinden.
+
+## 8k. Ayrıştırıcı 11 — HTML biçim etiketleri ve enantiyomer değerleri
+
+Kullanıcının bildirdiği örnek Warfarin'di: "Yarı ömür: Metin ayrıştırılamadı". Kayıtta değer
+vardı, ama iki nedenle okunamıyordu.
+
+- **HTML biçim etiketleri.** DrugBank metninde yarı ömür `T<sub>1/2</sub>` (Tmax
+  `T<sub>max</sub>`) biçiminde yazılabiliyor. Etiketler kısaltmayı böldüğü için süre yarı
+  ömre bağlanamıyordu (`duration_not_identified_as_half_life`).
+  - Ayrıştırmadan ve gösterimden önce satır içi biçim etiketleri kaldırılır: `sub`, `i`, `b`,
+    `em`, `strong`, `span`, `small`, `u` → hiçbir şey; `<sup>` → `^` (`10<sup>3</sup>` →
+    `10^3`, asla `103`); `<br>` → boşluk.
+  - Ekranda gösterilen saklı metin de bu temiz metindir; alıntı konumları onunla tutarlıdır.
+  - Alan `html_formatting_removed` bayrağını taşır.
+  - Kesilmiş olabilir kararı (`stored_text_possibly_truncated`) saklı uzunluğa göre verilir.
+- **Enantiyomer başına değer.** `R-warfarin T1/2 = 37-89 hours. S-warfarin T1/2 = 21-43 hours.`
+  cümlesinde özne `R-warfarin` kayıt adı `Warfarin`'e eşit sayılmadığı için değer "başka
+  ilaç" (`subject_not_record_drug`) olarak düşüyordu.
+  - Özne karşılaştırmasında baştaki stereo öneki yok sayılır: `R-`, `S-`, `(R)-`, `(S)-`,
+    `(+)-`, `(-)-`. Böylece `R-warfarin` ve `S-warfarin` kayıt ilacıdır; `R-drugb` yine başka
+    ilaçtır.
+  - Enantiyomer **yeni bir koşul** olarak tutulur: `conditions.stereoisomer`
+    (ör. `["R-warfarin"]`, `["S-warfarin"]`; ayrıca `R-enantiomer`, `dextro/levorotatory …`).
+  - Koşul anahtarına girdiği için R ve S değerleri **ayrı satır ve ayrı ölçümdür**. Hiçbir
+    zaman tek bir "Warfarin" değerinde birleştirilmez. Her birinin kendi ≈5× hesabı vardır.
+- **Değişmeyen temkinli kural.** Değerin kendi ölçüm sözcüğü yoksa yine incelemeye
+  kalır. Örnek: `… 37-89 hours for R-warfarin and 21-43 hours for S-warfarin` cümlesinde
+  ikinci değer anahtar sözcüğü paylaşır.
+- **Ne değildir.** Bu süreler iki ilaç arasında bırakılacak süre değildir.
+
+Denetim:
+- `tests/unit/test_m02_markup_stereo.py` (18 test);
+- `test_m02_audit_r8_http_pg.py::test_r11_subscript_and_enantiomers_http`.
+
+R2–R7 ve D1–D6 HTTP tarama setleri yeni alan dışında birebir aynı kaldı.
 
 ## 10. ≈5 × yarılanma ömrü
 

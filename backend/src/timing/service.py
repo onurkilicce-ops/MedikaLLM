@@ -119,7 +119,7 @@ def _measurements(drug_id: str, fp: FieldParse, refs: List[repository.ReferenceR
                 route=c["route"], formulation=c["formulation"], population=c["population"],
                 food_state=c["food_state"], dosing=c["dosing"], analyte=c["analyte"],
                 analyte_terms=c["analyte_terms"], phase=c["phase"], matrix=c["matrix"], kinetics=c["kinetics"],
-                other=c["other"],
+                other=c["other"], stereoisomer=c.get("stereoisomer", []),
             ),
             time_reference=v.time_reference,
             review_required=bool(v.review_reasons),

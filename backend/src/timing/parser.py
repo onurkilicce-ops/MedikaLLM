@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
 
-PARSER_VERSION = "m02-text-parser/10"
+PARSER_VERSION = "m02-text-parser/11"
 
 HALF_LIFE = "half_life"
 TMAX = "tmax"
@@ -442,7 +442,7 @@ def _subject_residual(phrase: str, drop_salts: bool = True) -> List[str]:
     """Name words of a subject phrase: determiners, generic words, condition /
     group / metabolite / species words (and, with ``drop_salts``, salt words)
     removed. R4: callers must not read an empty result as 'the record drug'."""
-    low = _join_codes(phrase.lower())
+    low = _join_codes(_STEREO_PREFIX.sub(lambda m: " " * len(m.group(0)), phrase.lower()))
     chars = list(low)
     # condition terms are read on the original case too ('ER tablets')
     orig = _condition_spans(phrase) if len(phrase) == len(low) else []
@@ -981,7 +981,29 @@ _COND_PATTERNS: Dict[str, List[Tuple[str, int]]] = {
 }
 _COMPILED_COND = {k: [re.compile(p, f) for p, f in v] for k, v in _COND_PATTERNS.items()}
 _LIST_CATEGORIES = ("route", "formulation", "population", "food_state", "dosing", "matrix", "kinetics",
-                    "phase", "other")
+                    "phase", "other", "stereoisomer")
+# R11: a value stated for one enantiomer of the record drug ('R-warfarin', '(S)-warfarin',
+# 'the R-enantiomer'). Kept as a condition so R and S values stay separate rows; never
+# merged into one value of the racemic drug.
+_STEREO = re.compile(r"(?<![\w-])(?:\(\s*(?:[RS]|[+\u2212-])\s*\)|[RS])-(?=[A-Za-z]{3})[A-Za-z][\w-]*"
+                     r"|\b[RS]-enantiomers?\b|\b(?:dextro|levo)-?rotatory\s+[\w-]+")
+# the same prefix, removed from a subject before it is compared with the record name
+_STEREO_PREFIX = re.compile(r"(?<![\w-])\(?(?:[rs]|[+\u2212-])\)?-(?=[a-z]{3})")
+# R11: inline HTML formatting in stored text ('T<sub>1/2</sub>', 'C<sub>max</sub>')
+_HTML_INLINE = re.compile(r"</?(?:sub|i|b|em|strong|span|small|u)(?:\s[^<>]{0,200})?>|<br\s*/?>|</?sup>", re.I)
+
+
+def normalize_markup(text: str) -> str:
+    """Inline HTML formatting removed so 'T<sub>1/2</sub>' reads 'T1/2'; '<sup>' becomes '^'
+    (10<sup>3</sup> -> 10^3, never 103) and '<br>' a space. Other text is unchanged."""
+    def rep(m):
+        tag = m.group(0).lower()
+        if tag.startswith("<br"):
+            return " "
+        if tag == "<sup>":
+            return "^"
+        return ""
+    return _HTML_INLINE.sub(rep, text)
 _METABOLITE = re.compile(r"(?:\b(?:active|major|main|primary|inactive|principal|pharmacologically active)\s+)?"
                          r"\bmetabolites?\b", _I)
 _PARENT = re.compile(r"\bparent(?:\s+(?:drug|compound|molecule))?\b|\bunchanged (?:drug|form|compound)\b", _I)
@@ -1399,6 +1421,7 @@ def extract_conditions(window_text: str, measure_type: str) -> Dict[str, object]
         cond["analyte"] = "not_stated"
     cond["analyte_terms"] = list(dict.fromkeys(met + par))
     cond["_analyte_ambiguous"] = bool(met and par)
+    cond["stereoisomer"] = list(dict.fromkeys(" ".join(m.group(0).split()) for m in _STEREO.finditer(window_text)))
     return cond
 
 
@@ -1632,11 +1655,14 @@ def parse_field(source_field: str, text: Optional[str], stored_max_length: Optio
     """``subject_names``: names of the record drug (used only to notice a value
     stated for another, capitalised subject; no name recognition otherwise)."""
     measure = FIELD_MEASURE[source_field]
-    raw = text if text is not None else None
+    stored_length = len(text) if text else 0
+    truncated = bool(text) and stored_max_length is not None and stored_length >= stored_max_length
+    raw = normalize_markup(text) if text else text
     length = len(raw) if raw else 0
-    truncated = bool(raw) and stored_max_length is not None and length >= stored_max_length
     fp = FieldParse(source_field=source_field, measure_type=measure, status="empty", text=raw,
                     length=length, possibly_truncated=truncated)
+    if text and raw != text:
+        fp.flags.append("html_formatting_removed")
     if raw is None or not raw.strip():
         fp.status = "empty"
         return fp

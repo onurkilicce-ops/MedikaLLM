@@ -161,6 +161,8 @@ class Conditions(_Out):
     matrix: List[str] = []
     kinetics: List[str] = []
     other: List[str] = Field([], description="Species / in vitro / co-administration terms")
+    stereoisomer: List[str] = Field([], description="Enantiomer the value is stated for ('R-warfarin'); "
+                                                   "R and S values are separate measurements")
 
 
 class TimingMeasurement(_Out):

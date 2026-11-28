@@ -71,3 +71,12 @@ describe('audit fixes', () => {
     expect(ticks.every(t => !/\d\.\d/.test(t))).toBe(true);
   });
 });
+
+describe('parser /11: enantiomer values', () => {
+  it('shows the enantiomer as a condition so R and S stay on separate rows', async () => {
+    const { conditionText } = await import('./format');
+    expect(conditionText({route:[], stereoisomer:['R-warfarin'], analyte:'not_stated'})).toBe('R-warfarin');
+    expect(conditionText({route:[], stereoisomer:['S-warfarin'], analyte:'not_stated'})).not.toBe(
+      conditionText({route:[], stereoisomer:['R-warfarin'], analyte:'not_stated'}));
+  });
+});
