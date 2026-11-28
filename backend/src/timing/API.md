@@ -136,7 +136,7 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
 ```json
 {
   "schema_version": "m02-timing-compare/2",
-  "parser_version": "m02-text-parser/10",
+  "parser_version": "m02-text-parser/11",
   "drugs": [
     {
       "position": 0,
@@ -178,10 +178,10 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
           "approximate": false, "dispersion": null,
           "conditions": {"route": ["oral"], "formulation": [], "population": [], "food_state": [], "dosing": [],
                          "analyte": "not_stated", "analyte_terms": [], "phase": [], "matrix": ["plasma"],
-                         "kinetics": [], "other": []},
+                         "kinetics": [], "other": [], "stereoisomer": []},
           "time_reference": "after_administration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/10"
+          "parser_version": "m02-text-parser/11"
         },
         {
           "measurement_id": "DB00006:half_life:1", "drug_id": "DB00006",
@@ -205,10 +205,10 @@ sentetik satırlarla gerçek çıktısıdır (yalnız uzun sınırlama listesi k
           "approximate": false, "dispersion": null,
           "conditions": {"route": [], "formulation": [], "population": [], "food_state": [], "dosing": [],
                          "analyte": "not_stated", "analyte_terms": [], "phase": ["elimination"], "matrix": [],
-                         "kinetics": [], "other": []},
+                         "kinetics": [], "other": [], "stereoisomer": []},
           "time_reference": "not_applicable_duration",
           "review_required": false, "review_reasons": [], "conflict_group": null,
-          "parser_version": "m02-text-parser/10"
+          "parser_version": "m02-text-parser/11"
         }
       ],
       "derived": [
@@ -444,7 +444,7 @@ POST /api/timing/compare           (veritabanı okunamıyor)
 ## M-02 ekranı: arama ve açık kaynaklı öneriler (Astra teslimi)
 
 `compare` sözleşmesi `/2` olarak kalır; ayrıştırıcı `/9` olmuştu, bağımsız denetim
-düzeltmeleriyle `/10` oldu. `/10`'da anaforik ya da yok özne (`Its half-life`,
+düzeltmeleriyle `/10`, HTML etiketi ve enantiyomer düzeltmesiyle `/11` oldu (RULES 8k: `T<sub>1/2</sub>` okunur; R/S değerleri ayrı ölçümdür, `conditions.stereoisomer`; alan `html_formatting_removed` bayrağı taşıyabilir). `/10`'da anaforik ya da yok özne (`Its half-life`,
 `Half-life: 6 hours`) önceki metindeki ilaç biçimli kanıtı miras alır (`drug b`,
 `compound c`, `the formulation of drug b`); belirli `The half-life` miras almaz
 (RULES 8j). Alan ve kod değişmedi. Compare içindeki
