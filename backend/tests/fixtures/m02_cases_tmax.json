@@ -1,0 +1,687 @@
+{
+  "_comment": "SYNTHETIC test cases for M-02 parser m02-text-parser/1. Not DrugBank content, no clinical meaning. Expected results written from RULES.md before implementation.",
+  "author": "author-tmax-refs",
+  "ambiguities": [
+    {"text": "[SYNTHETIC] Peak plasma concentrations are reached within 0.5-1 hours after oral administration.", "why": "RULES 4 makes 'within' an inclusive upper_bound in Tmax context but does not say what kind results when 'within' precedes a range (range 0.5..1 vs upper_bound 1); the no-'within' variant is used as a case instead."},
+    {"text": "(empty / whitespace-only absorption, and 'Not Available')", "why": "Every case text must start with '[SYNTHETIC] ', which makes it non-empty and not an exact placeholder string, so empty/placeholder statuses (RULES 2.1-2.2) cannot be expressed under that constraint."},
+    {"text": "[SYNTHETIC] Peak plasma concentrations are reached over 2 hours.", "why": "RULES 4 says 'over' -> review (ambiguous_qualifier) but not whether this yields a review-flagged measurement (parsed_needs_review) or only a review item (unparsed_needs_review)."},
+    {"text": "[SYNTHETIC] Peak plasma concentrations of the depot are reached 1 month after injection.", "why": "unit_not_exactly_convertible: RULES does not say whether a flagged measurement with null hours is kept or only a review item is written."},
+    {"text": "[SYNTHETIC] In children aged 2-12 years, peak plasma concentration was reached 1 hour after oral administration.", "why": "Unclear whether a context-excluded duration ('aged 2-12 years') still counts as a duration for window splitting (RULES 3), so whether 'children' stays on the Tmax value is undetermined."},
+    {"text": "[SYNTHETIC] Absorption was studied in children aged 2-12 years.", "why": "An excluded age duration goes to review per RULES 5, which would make the field unparsed_needs_review rather than no_statement_found; not certain this is intended for age expressions with no Tmax keyword."},
+    {"text": "[SYNTHETIC] Tmax is 1 hour after oral administration of the solution, whereas the suspension reaches peak plasma concentrations at 3 hours.", "why": "RULES 6 says time_reference comes from 'window/sentence'; unclear whether 'after ... administration' in window 1 gives window 2 after_administration (conditions must not carry over, but the time reference rule mentions the sentence)."}
+  ],
+  "cases": [
+    {
+      "id": "tmax_range_after_oral_admin",
+      "covers": ["tmax keyword peak plasma concentration", "range format", "time_reference after_administration", "route condition"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Peak plasma concentrations are reached 0.5-1 hours after oral administration.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 0.5, "upper": 1}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"]}, "time_reference": "after_administration", "reference_status": "no_inline_reference"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [0.75, 0]
+      }
+    },
+    {
+      "id": "tmax_90_minutes",
+      "covers": ["minutes to hours conversion", "formulation capsule", "time_reference after_administration"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Following oral administration of a capsule, a Tmax of 90 minutes was observed.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "minutes", "hours": {"kind": "point", "value": 1.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"], "formulation": ["capsule"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [90]
+      }
+    },
+    {
+      "id": "tmax_within_one_hour_upper_bound",
+      "covers": ["within as inclusive upper_bound in Tmax context", "time_reference not_stated"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Peak plasma concentrations are attained within 1 hour.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 1}, "approximate": false, "review_required": false, "time_reference": "not_stated"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [0]
+      }
+    },
+    {
+      "id": "tmax_time_to_peak_approximately",
+      "covers": ["time to peak keyword", "approximate qualifier"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The time to peak concentration was approximately 2 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": true, "review_required": false, "time_reference": "not_stated"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "tmax_cmax_reached_at",
+      "covers": ["cmax ... reached keyword", "following ... dose time reference", "route oral"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Following a single oral dose, Cmax is reached at 3 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 3, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "absorption_no_tmax_statement",
+      "covers": ["no_statement_found", "percent is not a duration"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The compound is well absorbed from the gastrointestinal tract, with an oral bioavailability of approximately 60%.",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "no_statement_found",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": [],
+        "forbidden_hours": [60]
+      }
+    },
+    {
+      "id": "maximum_therapeutic_effect_not_tmax",
+      "covers": ["maximum therapeutic effect is not Tmax", "duration_not_identified_as_tmax"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Maximum therapeutic effect is observed after 2-3 weeks of treatment.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["duration_not_identified_as_tmax"],
+        "forbidden_hours": [336, 504, 2, 3]
+      }
+    },
+    {
+      "id": "onset_of_action_not_tmax",
+      "covers": ["onset is not Tmax", "duration_not_identified_as_tmax"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Onset of action occurs within 30 minutes of oral intake.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["duration_not_identified_as_tmax"],
+        "forbidden_hours": [0.5, 30]
+      }
+    },
+    {
+      "id": "mg_and_ng_ml_not_hours",
+      "covers": ["mg dose amount never hours", "ng/mL concentration never hours", "after ... dose time reference"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] After a 500 mg oral dose, peak plasma concentrations of 12 ng/mL were reached at 2 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [500, 12]
+      }
+    },
+    {
+      "id": "mg_range_not_hours",
+      "covers": ["10-20 mg range never hours", "within upper_bound with decimal"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Doses of 10-20 mg produced a peak plasma concentration within 1.5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "upper_bound", "value": null, "lower": null, "upper": 1.5}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [10, 20]
+      }
+    },
+    {
+      "id": "age_range_other_sentence_not_tmax",
+      "covers": ["aged N-M years is never Tmax", "population from another sentence not attached"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] A study enrolled children aged 2-12 years. Peak plasma concentrations were reached 1 hour after oral administration.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"]}, "conditions_exclude": {"population": ["children"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [2, 12, 48, 288, 17520, 105120]
+      }
+    },
+    {
+      "id": "absorption_half_life_not_tmax",
+      "covers": ["absorption half-life in absorption field is not Tmax"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The absorption half-life of the oral solution is 0.5 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["duration_not_identified_as_tmax"],
+        "forbidden_hours": [0.5]
+      }
+    },
+    {
+      "id": "steady_state_not_tmax",
+      "covers": ["steady state within N days is not Tmax"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Steady state is achieved within 3 days of daily dosing.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["duration_not_identified_as_tmax"],
+        "forbidden_hours": [72, 3]
+      }
+    },
+    {
+      "id": "ir_vs_er_formulation_windows",
+      "covers": ["window split on whereas", "formulation does not carry over between windows"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Peak plasma concentrations are reached 1 hour after oral administration of the immediate-release tablet, whereas the extended-release tablet reaches peak plasma concentrations at 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"], "formulation": ["immediate-release", "tablet"]}, "conditions_exclude": {"formulation": ["extended-release"]}, "time_reference": "after_administration"},
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 6, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"formulation": ["extended-release", "tablet"]}, "conditions_exclude": {"formulation": ["immediate-release"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "fed_vs_fasted_food_state",
+      "covers": ["window split on and", "sentence_keyword for second window", "food_state per window"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was 1 hour under fasted conditions and 3 hours with a high-fat meal.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"food_state": ["fasted"]}, "conditions_exclude": {"food_state": ["high-fat meal"]}},
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 3, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"food_state": ["high-fat meal"]}, "conditions_exclude": {"food_state": ["fasted"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "ref_token_matched",
+      "covers": ["token after period belongs to preceding sentence", "matched reference"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Peak plasma concentrations are reached approximately 1 hour after oral administration.[A1]",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": true, "review_required": false, "time_reference": "after_administration", "reference_status": "matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "ref_token_unmatched",
+      "covers": ["token not among same-drug references -> unmatched"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax is 2 hours after oral dosing.[A9]",
+      "drug_reference_ids": ["A1", "A2"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "unmatched", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [9]
+      }
+    },
+    {
+      "id": "ref_token_partially_matched",
+      "covers": ["multi-token bracket with one match -> partially_matched"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The time to maximum plasma concentration is 4 hours.[A1, L2]",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 4, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "partially_matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [1, 2]
+      }
+    },
+    {
+      "id": "ref_token_other_sentence_not_attached",
+      "covers": ["token of a different sentence is not attached"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The compound is rapidly absorbed after oral intake.[A1] Peak plasma concentrations occur 2 hours after dosing.",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": false, "review_required": false, "time_reference": "after_administration", "reference_status": "no_inline_reference", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [1]
+      }
+    },
+    {
+      "id": "ref_only_own_sentence_token",
+      "covers": ["only the token of the quoted sentence is attached; following sentence token ignored"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax is 2 hours.[A1] Oral bioavailability is low.[A2]",
+      "drug_reference_ids": ["A1", "A2"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "general_refs_without_token",
+      "covers": ["general drug references never attached without inline token"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Peak serum concentrations are reached 3 hours after intramuscular injection.",
+      "drug_reference_ids": ["A1", "L3"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 3, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["intramuscular"], "formulation": ["injection"]}, "time_reference": "after_administration", "reference_status": "no_inline_reference", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": []
+      }
+    },
+    {
+      "id": "tmax_not_determined_keyword_without_value",
+      "covers": ["keyword_without_parsable_value", "sentence is not a whole-text placeholder"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was not determined in clinical studies.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["keyword_without_parsable_value"],
+        "forbidden_hours": [0]
+      }
+    },
+    {
+      "id": "time_to_peak_varies_keyword_without_value",
+      "covers": ["keyword_without_parsable_value"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The time to peak concentration varies considerably between individuals.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["keyword_without_parsable_value"],
+        "forbidden_hours": [0]
+      }
+    },
+    {
+      "id": "tmax_number_in_words_not_structured",
+      "covers": ["number written as word is not structured", "keyword_without_parsable_value"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax is about two hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["keyword_without_parsable_value"],
+        "forbidden_hours": [2]
+      }
+    },
+    {
+      "id": "tmax_ambiguous_decimal_comma",
+      "covers": ["ambiguous_number_format for comma number"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was 1,5 hours in healthy volunteers.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "unparsed_needs_review",
+        "measurement_count": 0,
+        "measurements": [],
+        "review_reasons_include": ["ambiguous_number_format"],
+        "forbidden_hours": [1.5, 5, 15, 1]
+      }
+    },
+    {
+      "id": "tmax_days_depot",
+      "covers": ["days to hours conversion", "route intramuscular", "formulation depot"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Following intramuscular injection of the depot formulation, peak plasma concentrations are reached 7 days after administration.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "days", "hours": {"kind": "point", "value": 168, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["intramuscular"], "formulation": ["depot", "injection"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [7]
+      }
+    },
+    {
+      "id": "tmax_plus_minus_point",
+      "covers": ["plus-minus is point with dispersion, not range", "population healthy volunteers"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was 2.5 ± 0.8 hours in healthy volunteers.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"population": ["healthy volunteers"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [0.8, 1.7, 3.3]
+      }
+    },
+    {
+      "id": "tmax_ranges_from_to",
+      "covers": ["'2 to 4 hours' range", "time to maximum keyword", "after dosing time reference"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] The time to maximum plasma concentration ranges from 2 to 4 hours after oral dosing.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 2, "upper": 4}, "approximate": false, "review_required": false, "conditions_include": {"route": ["oral"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3]
+      }
+    },
+    {
+      "id": "tmax_min_abbrev_sublingual",
+      "covers": ["'min' unit preserved", "route sublingual"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] After sublingual administration, Tmax is 45 min.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "min", "hours": {"kind": "point", "value": 0.75, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"route": ["sublingual"]}, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [45]
+      }
+    },
+    {
+      "id": "every_interval_excluded",
+      "covers": ["'every 12 hours' context exclusion", "window split on comma"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] When given every 12 hours, peak plasma concentrations are reached 2 hours after each dose.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 2, "lower": null, "upper": null}, "approximate": false, "review_required": false, "time_reference": "after_administration"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [12]
+      }
+    },
+    {
+      "id": "t_half_in_absorption_not_tmax",
+      "covers": ["half-life word in Tmax field is competitor", "t1/2 digits are not numbers", "second window not sentence_keyword"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was 1 hour and the plasma t1/2 was 6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": false, "review_required": false}
+        ],
+        "review_reasons_include": ["duration_not_identified_as_tmax"],
+        "forbidden_hours": [6, 2, 0.5]
+      }
+    },
+    {
+      "id": "tmax_conflict_same_conditions",
+      "covers": ["conflicting_values_same_conditions", "parsed_needs_review when all flagged"],
+      "field": "absorption",
+      "text": "[SYNTHETIC] Tmax was 1 hour. In a second study, Tmax was 3 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed_needs_review",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "tmax", "unit": "hour", "hours": {"kind": "point", "value": 1, "lower": null, "upper": null}, "approximate": false, "review_required": true},
+          {"measure_type": "tmax", "unit": "hours", "hours": {"kind": "point", "value": 3, "lower": null, "upper": null}, "approximate": false, "review_required": true}
+        ],
+        "review_reasons_include": ["conflicting_values_same_conditions"],
+        "forbidden_hours": [2]
+      }
+    },
+    {
+      "id": "hl_elimination_range_matched_ref",
+      "covers": ["half-life matched reference", "derived range computed separately"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The elimination half-life is 4-6 hours.[A1]",
+      "drug_reference_ids": ["A1", "A2"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 4, "upper": 6}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["elimination"]}, "time_reference": "not_applicable_duration", "reference_status": "matched", "matched_ref_ids": ["A1"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [5, 25],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 20, "upper": 30}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_field_only_no_token",
+      "covers": ["field_only basis", "no_inline_reference despite general refs", "derived 20..30 without Tmax"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] 4-6 hours",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 4, "upper": 6}, "approximate": false, "review_required": false, "time_reference": "not_applicable_duration", "reference_status": "no_inline_reference", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [25],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 20, "upper": 30}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_with_tmax_sentence_derived_excludes_tmax",
+      "covers": ["Tmax never read from half_life field", "derived never includes Tmax", "duration_not_identified_as_half_life"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] Peak plasma concentrations occur at 2 hours and the elimination half-life is 4-6 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 4, "upper": 6}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["elimination"]}, "time_reference": "not_applicable_duration"}
+        ],
+        "review_reasons_include": ["duration_not_identified_as_half_life"],
+        "forbidden_hours": [2, 10, 22, 32],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "range", "value": null, "lower": 20, "upper": 30}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_terminal_partially_matched",
+      "covers": ["partially_matched in half_life", "approximate point derived x5"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The terminal half-life is approximately 12 hours.[A3, L7]",
+      "drug_reference_ids": ["A3"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 12, "lower": null, "upper": null}, "approximate": true, "review_required": false, "conditions_include": {"phase": ["terminal"]}, "reference_status": "partially_matched", "matched_ref_ids": ["A3"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3, 7],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 60, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_metabolite_unmatched",
+      "covers": ["unmatched token in half_life", "metabolite analyte -> derived not_computed"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life of the active metabolite is 20 hours.[B4]",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 20, "lower": null, "upper": null}, "approximate": false, "review_required": false, "analyte": "metabolite", "reference_status": "unmatched", "matched_ref_ids": []}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [4],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["metabolite_not_parent"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_distribution_vs_terminal",
+      "covers": ["window split on while", "distribution phase -> non_elimination_phase", "terminal elimination computed"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The distribution half-life is 0.5 hours, while the terminal elimination half-life is 10 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 0.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["distribution"]}},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 10, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"phase": ["terminal", "elimination"]}}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["non_elimination_phase"]},
+          {"status": "computed", "hours": {"kind": "point", "value": 50, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_two_sentences_each_own_ref",
+      "covers": ["each sentence keeps its own token", "population per sentence", "derived per measurement"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The mean half-life was 8 hours in healthy adults.[A1] In patients with hepatic impairment, the half-life was 16 hours.[A2]",
+      "drug_reference_ids": ["A1", "A2"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 2,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 8, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_exclude": {"population": ["hepatic impairment"]}, "reference_status": "matched", "matched_ref_ids": ["A1"]},
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 16, "lower": null, "upper": null}, "approximate": false, "review_required": false, "conditions_include": {"population": ["hepatic impairment"]}, "reference_status": "matched", "matched_ref_ids": ["A2"]}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 40, "lower": null, "upper": null}, "reasons_include": []},
+          {"status": "computed", "hours": {"kind": "point", "value": 80, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    },
+    {
+      "id": "hl_dose_dependent_not_computed",
+      "covers": ["dose-dependent kinetics -> derived not_computed", "ranging from range"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The half-life is dose-dependent, ranging from 3 to 9 hours.",
+      "drug_reference_ids": [],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "range", "value": null, "lower": 3, "upper": 9}, "approximate": false, "review_required": false, "reference_status": "no_inline_reference"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [6],
+        "derived": [
+          {"status": "not_computed", "hours": null, "reasons_include": ["nonlinear_or_dose_dependent_kinetics"]}
+        ]
+      }
+    },
+    {
+      "id": "hl_plus_minus_center_only",
+      "covers": ["plus-minus point", "derived multiplies only the centre"],
+      "field": "half_life",
+      "text": "[SYNTHETIC] The plasma half-life is 4.5 ± 1.5 hours.",
+      "drug_reference_ids": ["A1"],
+      "expect": {
+        "field_status": "parsed",
+        "measurement_count": 1,
+        "measurements": [
+          {"measure_type": "half_life", "unit": "hours", "hours": {"kind": "point", "value": 4.5, "lower": null, "upper": null}, "approximate": false, "review_required": false, "reference_status": "no_inline_reference"}
+        ],
+        "review_reasons_include": [],
+        "forbidden_hours": [3, 6, 15, 30],
+        "derived": [
+          {"status": "computed", "hours": {"kind": "point", "value": 22.5, "lower": null, "upper": null}, "reasons_include": []}
+        ]
+      }
+    }
+  ]
+}

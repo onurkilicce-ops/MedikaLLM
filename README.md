@@ -126,6 +126,151 @@ Frontend (`frontend/` içinde): `npm test` ve `npm run build`.
 
 CI (`.github/workflows/ci.yml`): her PR'da backend için `uv lock --check`, `uv sync --locked`, gerçek paketlerin içe aktarılması, sentetik PostgreSQL servisiyle katı modda tüm testler; frontend için `npm ci`, `npm test`, `npm run build`. Ücretli sağlayıcı, API anahtarı ve gerçek DrugBank verisi gerekmez. Otomatik dağıtım/sağlık izleme workflow'u yoktur.
 
+## M-02 ekranı: seçim, çizelge ve kaynaklı zamanlama
+
+Hekim hesabıyla giriş yaptıktan sonra paneldeki **M-02 · Zamanlama**
+bağlantısını veya `/timing` yolunu açın. 2–10 farklı ilaç seçin. Tmax, yarı ömür
+ve uygun değerlerde yaklaşık 5× süre aynı saat ekseninde, koşulları ayrı satırlarda
+gösterilir. Eksik/inceleme gereken değer çizilmez; metni ve gerekçesi kartta kalır.
+Çizelge kişisel konsantrasyon eğrisi veya güvenli ilaç alma takvimi değildir.
+
+Zaman aralığı önerileri ayrı `/api/timing/advice` çağrısıyla, yalnız seçilen ürün
+profili ve açık kaynak eşleşince gösterilir. Profil seçilmemesi, katalogda kural
+olmaması ve teknik hata ayrıdır. Kaynak kapsamı [SOURCES.md](backend/src/timing/SOURCES.md),
+alan sözleşmeleri [API.md](backend/src/timing/API.md)'dedir. Kadir'in ajanı/C1 ve
+Halil'in hasta ekranı bu akışın ön koşulu değildir.
+
+**M-03 (aynı ekran): organlar, enzimler ve taşıyıcılar.** Karşılaştırmadan sonra
+ekranın altında "Organlar, enzimler ve taşıyıcılar (M-03)" bölümü dolar. M-02
+sonuçlarını beklemez ve geciktirmez. Her ilaç için gösterilenler:
+
+- **Organlar:** hangi organların temizlediğini söyleyen kayıt cümleleri, birebir alıntıyla.
+  Organa yüzde atanmaz; yüzdeler alıntıda okunur.
+- **Proteinler:** DrugBank'in listelediği enzim, taşıyıcı ve taşıyıcı proteinler. İlacın
+  her birini kullanıp kullanmadığı (substrat), yavaşlatıp yavaşlatmadığı (inhibitör) ya
+  da hızlandırıp hızlandırmadığı (indükleyici) gösterilir.
+
+Her ilaç çifti için ortak bir insan proteini üzerinden açıklama yapılır (ör. "A, B'yi
+işleyen enzimi yavaşlatır; B kanda birikebilir"). DrugBank'in kendi etkileşim metni de
+yanında gösterilir. Ortak protein yokluğu "etkileşim yok" değildir. Uç
+`POST /api/mechanism/compare`; kurallar [RULES.md](backend/src/mechanism/RULES.md),
+sözleşme [API.md](backend/src/mechanism/API.md).
+
+### Baştan sona sentetik deneme (gerçek DrugBank verisi gerekmez)
+
+Ön koşul: yalnız test için ayrılmış, çalışan yerel PostgreSQL ve yeni boş
+`medicallm_m02_synth` veritabanı; `vector` ve `pg_trgm` uzantıları kullanılabilir
+olmalı. Aşağıdaki `--seed` yalnız bu onaylanmış test veritabanını yeniden kurar.
+Mevcut uygulama/DrugBank veritabanı veya veri klasörü kullanılmaz; betik bir
+PostgreSQL kümesi başlatmaz. `KULLANICI` ve `PORT` kendi ayrı test sunucunuzundur.
+
+Backend terminali, `backend/` içinde:
+
+```powershell
+uv sync --locked
+$env:DO_POSTGRES_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_m02_synth"
+$env:M02_DEMO_CONFIRM = "medicallm_m02_synth"
+$env:MEDICALLM_SYNTHETIC_PG_CONFIRM = "medicallm_m02_synth"
+$env:DB_SSLMODE = "disable"
+$env:JWT_SECRET = "m02-local-synthetic-only-not-production"
+$env:ADMIN_PASSWORD = "m02-local-synthetic-only"
+$env:LLM_BASE_URL = "http://127.0.0.1:9/v1"
+$env:DO_MODEL_ACCESS_KEY = ""
+uv run python scripts/m02_synthetic_demo.py --seed --serve
+```
+
+Bu M-02 test sunucusu `127.0.0.1:18102` üzerinde gerçek kimlik/yetki, router,
+servis ve PostgreSQL kullanır. Yalnız uygulama başlangıcındaki LLM, periyodik işler
+ve migration başlatması devre dışıdır; üretim başlatıcısı değildir. İki mevcut
+sentetik hedef koruması geçmeden veri yazılmaz. `.env` değiştirilmez. Gerçek anahtar
+gerekmez. Betik yeni terminalde de hedef ve iki onay değişkenini ister.
+
+Ayrı frontend terminali, `frontend/` içinde:
+
+```powershell
+npm ci
+$env:VITE_BACKEND_URL = "http://127.0.0.1:18102"
+npm run dev
+```
+
+1. `http://localhost:3000/login` açın. Yalnız demo hesabı:
+   `synthetic.doctor.a@synthetic-medicallm.org`, parola `Synth-Pass-1!`.
+2. `/timing` açın; `[SYNTHETIC] Ciprofloxacin` ve `[SYNTHETIC] Sucralfate`
+   ekleyip karşılaştırın. Sentetik ilk ilaçta Tmax **0,5–1 sa**, yarı ömür
+   **4–6 sa**, ayrı yaklaşık 5× **20–30 sa** beklenir; Tmax eklenmez.
+   Kaynak kartını açın, alıntıyı/konumu görün. Bunlar gerçek ilaç PK değerleri değildir.
+3. Demo için ilk ilaçta UK 500 mg tablet, ikincide oral sucralfate profilini
+   seçin; yeniden karşılaştırın. Kaynağın iki ayrı yönünü görün: ilk ilaç
+   diğerinden **1–2 sa önce** veya **en az 4 sa sonra**. Bu profiller gerçek
+   kullanımda yalnız ürün gerçekten eşleşiyorsa seçilir.
+4. İlk ilaçta Ciproxin UK süspansiyon profilini ve öğün dışında süt ürününü
+   seçin. İlaç–gıda kaynağı görünmeli. Öğünün parçası süt ürününe geçince bu
+   sayısal kural uygulanmamalı. Levothyroxine + Empty agent seçimi, US tablet
+   profili ve kahvaltı ile yalnız **0,5–1 sa önce** yönünü gösterir.
+5. Uncertain agent + Empty agent seçin: yanlış ilaca bağlanmış değer/5× yok;
+   inceleme ve eksik veri mesajları var. İlaç çıkarılınca eski sonuç silinir.
+   Hasta demo hesabı (`synthetic.patient2@synthetic-medicallm.org`, aynı test
+   parolası) 403 alır. Backend kapalıysa hata görünür, boş/güvenli sonuç görünmez.
+
+Otomatik gerçek HTTP akışı (yukarıdaki sentetik sunucu açıkken, `frontend/`):
+
+```powershell
+npx vitest run --config vite.m02.config.js
+```
+
+Bu test React DOM → gerçek HTTP → kimlik/yetki → servis → sentetik PG yoludur;
+mock API veya görsel tarayıcı testi değildir. CI aynı akışı kendi geçici PG
+servisinde çalıştırır. Normal frontend testleri `npm test`, derleme `npm run build`.
+Çıkışta iki terminali Ctrl+C ile kapatın; ayrı test PostgreSQL'inizi kendi yönetim
+yönteminizle durdurun. Gerçek DrugBank kümesini bu deneme için açmayın.
+
+Uzman kabul kümesi ve henüz yapılmamış değerlendirme:
+[docs/M02_Uzman_Kabul.md](docs/M02_Uzman_Kabul.md).
+
+## M-02 zaman verisi API'si (`POST /api/timing/compare`) — deneme
+
+2–10 DrugBank kimliği için saklanan metindeki Tmax (`absorption`) ve yarılanma ömrü (`half_life`) ifadelerini kaynak alıntısı, koşulları ve satır içi referansıyla; ayrıca ayrı bir "≈5 × yarılanma ömrü" nesnesiyle döndürür. Salt okunur; LLM çağırmaz; hasta/doz almaz. **Klinik öneri değildir**, zaman aralığı önerisi üretmez (`timing_advice.status = "not_evaluated"`), uzman kabulü yapılmamıştır. Tipli sözleşme ve tam örnekler: [backend/src/timing/API.md](backend/src/timing/API.md); ayrıştırma kuralları: [backend/src/timing/RULES.md](backend/src/timing/RULES.md).
+
+Ayrı, **sentetik** bir veritabanıyla 5 adımda deneme (uygulama veya gerçek DrugBank veritabanınızı kullanmayın; bu adımlar seçtiğiniz `_synth` veritabanını siler ve yeniden kurar). PowerShell, `backend/` içinde:
+
+1. Yerel PostgreSQL'de yeni, boş bir veritabanı oluşturun (adı `_synth` ile bitsin, ör. `medicallm_demo_synth`; `vector` ve `pg_trgm` uzantıları kurulu olsun).
+2. Sentetik hesapları ve ilaç satırlarını yükleyin:
+   ```powershell
+   $env:DEMO_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_demo_synth"
+   $env:MEDICALLM_SYNTHETIC_PG_CONFIRM = "medicallm_demo_synth"
+   uv run python -m tests.integration.synthetic_data $env:DEMO_URL
+   ```
+3. İki sentetik kayda **sentetik** zaman metni ekleyin (herhangi bir SQL istemcisiyle, yalnız bu veritabanında):
+   ```sql
+   UPDATE drugs SET name = '[SYNTHETIC] Timing Agent A',
+     absorption = '[SYNTHETIC] Peak plasma concentrations are reached within 0.5-1 hours after oral administration.',
+     half_life  = '[SYNTHETIC] The elimination half-life is 4-6 hours.' WHERE drug_id = 'DB00006';
+   UPDATE drugs SET name = '[SYNTHETIC] Timing Agent B', absorption = 'Not Available',
+     half_life  = '[SYNTHETIC] The half-life is 90 minutes in healthy adults and 3 hours in patients with renal impairment.'
+     WHERE drug_id = 'DB00316';
+   ```
+4. Backend'i **yeni bir terminalde**, `backend/` içinde başlatın. Bu blok kendi başına yeterlidir: hedefi bu terminalde açıkça yazar ve uygulamayı ancak hedef doğrulanırsa açar. `.env` dosyasını değiştirmez. Değişken unutulursa uygulama `.env`/`POSTGRES_URL`'deki veritabanına geri dönmez; doğrulayıcı durur. `KULLANICI`/`PORT` değerlerini 2. adımdakiyle aynı yazın.
+   ```powershell
+   $env:DO_POSTGRES_URL = "postgresql://KULLANICI@127.0.0.1:PORT/medicallm_demo_synth"
+   $env:M02_DEMO_CONFIRM = "medicallm_demo_synth"
+   $env:DB_SSLMODE = "disable"
+   uv run python -m src.timing.demo_guard
+   if ($LASTEXITCODE -eq 0) { uv run python run.py } else { Write-Host "Durdu: demo hedefi dogrulanmadi; uygulama baslatilmadi." }
+   ```
+   `src.timing.demo_guard` yalnız bu terminalin ortam değişkenlerini okur, `.env`'yi okumaz. Şunları ister: `DO_POSTGRES_URL` tanımlı olmalı; yerel (`127.0.0.1`/`localhost`) ve sorgu seçeneksiz bir PostgreSQL adresi olmalı; veritabanı adı `_synth` ile bitmeli ve `M02_DEMO_CONFIRM` ile aynı olmalı. Ardından salt okunur bağlanıp sunucunun bildirdiği veritabanını ve sentetik olmayan kullanıcı bulunmadığını doğrular. Aksi halde çıkış kodu 2 olur ve hiçbir şey başlatılmaz.
+5. Sentetik hekim hesabıyla token alıp iki ilaçla deneyin (parola yalnız bu sentetik veritabanındaki test değeridir, `tests/integration/synthetic_data.py`):
+   ```powershell
+   $login = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/auth/login -ContentType application/json -Body '{"email":"synthetic.doctor.a@synthetic-medicallm.org","password":"Synth-Pass-1!"}'
+   $r = Invoke-RestMethod -Method Post -Uri http://localhost:8000/api/timing/compare -ContentType application/json -Headers @{Authorization = "Bearer $($login.token)"} -Body '{"drug_ids":["DB00006","DB00316"]}'
+   $r.drugs | Select-Object requested_id, lookup_status, data_status
+   $r.drugs[0].measurements | Select-Object measure_type, @{n='hours';e={$_.hours}}, @{n='quote';e={$_.source.quote}}
+   $r.drugs[0].derived | Select-Object status, @{n='hours';e={$_.hours}}, includes_tmax
+   $r.drugs[0].measurements | Select-Object @{n='ref';e={$_.source.reference_scope}}, @{n='stored_ref';e={$_.source.stored_reference_attributed}}
+   ```
+   Beklenen: `DB00006` için Tmax 0,5–1 sa (uygulamadan sonra), yarılanma ömrü 4–6 sa ve ayrı `derived` 20–30 sa (`includes_tmax = false`); `DB00316` için `data_status.tmax = placeholder`, 1,5 sa (sağlıklı yetişkin) ve 3 sa (böbrek yetmezliği) ayrı değerler. Doktor profili olmayan hesap 403, token'sız istek 401, aynı kimlik iki kez 422 alır.
+
+Gerçek veri envanteri (yalnız sayım, salt okunur; okumadan önce `transaction_read_only = on` doğrulanır, metin/URL yazmaz): `uv run python scripts/audit_m02_data.py --out m02_inventory.json` (bağlantı `M02_AUDIT_DB_URL` veya `DO_POSTGRES_URL`). Çıkış 0 = tamam, 1 = bağlanılamadı/salt okunur doğrulanamadı.
+
 ## Canlı yığın kontrolü (`backend/scripts/check_live_stack.py`)
 
 Kendi yapılandırmanızla (veritabanı + LLM sağlayıcısı) yığının gerçekten çalışıp çalışmadığını **hiçbir şey yazmadan** denetler. Veritabanına salt okunur bağlanır; sohbet kayıtları belleğe yazılır, veritabanına değil. LLM senaryoları gerçek sağlayıcı çağrısı yapar ve kotadan düşer.

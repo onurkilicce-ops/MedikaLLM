@@ -109,6 +109,48 @@ jobs:
           DO_MODEL_ACCESS_KEY: ""
         run: uv run --no-sync pytest tests -p no:cacheprovider -q --tb=short -ra
 
+      # M-02 UI -> real HTTP -> auth/service -> this job's throw-away PG.
+      # No browser, real DrugBank data or LLM credentials are required.
+      - name: Set up Node for M02 integrated DOM flow
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend for the integrated flow
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: M02 React DOM to PostgreSQL flow
+        working-directory: backend
+        env:
+          DO_POSTGRES_URL: postgresql://synth:synth@127.0.0.1:5432/medicallm_ci_synth
+          M02_DEMO_CONFIRM: medicallm_ci_synth
+          MEDICALLM_SYNTHETIC_PG_CONFIRM: medicallm_ci_synth
+          JWT_SECRET: ci-m02-synthetic-not-for-production
+          ADMIN_PASSWORD: ci-test-admin
+          DB_SSLMODE: disable
+          LLM_BASE_URL: http://127.0.0.1:9/v1
+          DO_MODEL_ACCESS_KEY: ""
+          AUTH_LIMIT: 1000/minute
+          SEARCH_LIMIT: 1000/minute
+        run: |
+          uv run --no-sync python scripts/m02_synthetic_demo.py --seed --serve > /tmp/m02-demo.log 2>&1 &
+          m02_pid=$!
+          trap 'kill "$m02_pid" 2>/dev/null || true' EXIT
+          uv run --no-sync python -c "
+          import time, urllib.request, urllib.error
+          for i in range(60):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:18102/openapi.json', timeout=1)
+                  break
+              except (urllib.error.URLError, TimeoutError):
+                  time.sleep(0.5)
+          else:
+              raise SystemExit('M02 synthetic server did not start')
+          " || { cat /tmp/m02-demo.log; exit 1; }
+          cd ../frontend
+          npx vitest run --config vite.m02.config.js
+
   frontend:
     name: Frontend tests + build
     runs-on: ubuntu-latest
