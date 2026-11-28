@@ -12,6 +12,7 @@ import Chat from './pages/Chat';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import DrugSearch from './pages/DrugSearch';
+import TimingPage from './timing/TimingPage';
 import Admin from './pages/Admin';
 import PatientLayout from './pages/patient/PatientLayout';
 import PatientDashboard from './pages/patient/PatientDashboard';
@@ -92,6 +93,7 @@ function PublicRoutes() {
 function AuthedRoutes() {
   return (
     <>
+      <Route path="/timing" element={<RequireAuth><TimingPage /></RequireAuth>} />
       <Route
         path="/chat"
         element={

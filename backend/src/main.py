@@ -277,6 +277,8 @@ from .users.router import router as users_router # noqa: E402
 from .admin.router import router as admin_router # noqa: E402
 from .pubmed.router import router as pubmed_router # noqa: E402
 from .pubmed.bookmarks_router import router as bookmarks_router # noqa: E402
+from .timing.router import router as timing_router  # noqa: E402  (M-02)
+from .mechanism.router import router as mechanism_router  # noqa: E402  (M-03)
 
 # Register all routers
 app.include_router(auth_router)
@@ -287,6 +289,8 @@ app.include_router(users_router)
 app.include_router(admin_router)
 app.include_router(pubmed_router)
 app.include_router(bookmarks_router)
+app.include_router(timing_router)
+app.include_router(mechanism_router)
 
 @app.get("/")
 async def endpoint_root():
